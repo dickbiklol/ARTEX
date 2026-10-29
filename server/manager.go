@@ -275,6 +275,10 @@ const (
 	// agent(planner/worker/主 agent/对话)由 noa 接管上下文压缩,取代内置 compaction。
 	// 每 run 读一次,切换只影响之后启动的 run。
 	settingNoaCompaction = "noa_compaction"
+	// settingPlannerIntentBatchMax caps how many intents one planner round may emit
+	// in a single add_intent batch. Default DefaultIntentBatchMax (8). Lower it on
+	// small worker pools / tight token budgets; raise it when many workers idle.
+	settingPlannerIntentBatchMax = "planner_intent_batch_max"
 	// defaultWebSearchBackend is used when web search is on but no backend was picked.
 	defaultWebSearchBackend = "ddgs"
 	// deepSeekWebSearchBackend borrows the active LLM profile instead of its own
@@ -338,6 +342,30 @@ func (m *Manager) SetWorkers(n int) error {
 
 // Enrich returns the asset auto-completion engine (may be nil if init failed).
 func (m *Manager) Enrich() *enrich.Engine { return m.enrich }
+
+// IntentBatchMax returns the per-round intent fan-out cap (default
+// agent.DefaultIntentBatchMax). Read per planner round via the injected resolver,
+// so a change applies on the next wake-up without rebuilding the planner.
+func (m *Manager) IntentBatchMax() int {
+	v, ok, err := m.pg.GetSetting(settingPlannerIntentBatchMax)
+	if err != nil || !ok {
+		return agent.DefaultIntentBatchMax
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n <= 0 {
+		return agent.DefaultIntentBatchMax
+	}
+	return n
+}
+
+// SetIntentBatchMax persists the per-round intent fan-out cap. n<=0 falls back to
+// the default rather than being rejected, so clearing the setting is possible.
+func (m *Manager) SetIntentBatchMax(n int) error {
+	if n <= 0 {
+		n = agent.DefaultIntentBatchMax
+	}
+	return m.pg.SetSetting(settingPlannerIntentBatchMax, strconv.Itoa(n))
+}
 
 // NewManager connects to PostgreSQL and, if proxyAddr is non-empty, starts the
 // traffic-recording proxy. PostgreSQL is required (it is the single data source).

@@ -232,6 +232,21 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 			log.Printf("[tools] seed %s 失败: %v", t.Name(), err)
 		}
 	}
+	// Seed the built-in command recipes (nuclei / ffuf / sqlmap / …) as
+	// kind='command' rows. They are what gives workers a *typed* offensive surface
+	// instead of "please remember the right bash". First-insert-only, so operator
+	// edits (disable / rebind / reword) survive restarts; system=true keeps them
+	// undeletable from the UI.
+	if recipes, err := db.ToolRecipes(); err != nil {
+		log.Printf("[tools] 内置工具配方解析失败: %v", err)
+	} else {
+		for _, r := range recipes {
+			if err := pg.SeedToolRecipe(r); err != nil {
+				log.Printf("[tools] seed recipe %s 失败: %v", r.Key, err)
+			}
+		}
+		log.Printf("[tools] 内置命令配方已播种 %d 个", len(recipes))
+	}
 	// bashInteractiveShellNote is appended to Bash's description ONLY for agents whose
 	// interactive_shell is on, so Bash points at shell_open for interactive programs
 	// without ever referencing a tool that isn't injected (§14.1/§14.2).

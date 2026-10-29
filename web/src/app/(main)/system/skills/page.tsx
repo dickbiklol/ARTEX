@@ -327,6 +327,17 @@ export default function SkillsPage() {
   const [uploading, setUploading] = React.useState(false);
   const uploadRef = React.useRef<HTMLInputElement>(null);
 
+  // 导入 .md（不是 .zip）：把外部 skill 文档贴进来／选文件读进来，可让模型先重写成
+  // 本平台的工具名与 vulnclass 词汇再落盘。
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [importMd, setImportMd] = React.useState("");
+  const [importName, setImportName] = React.useState("");
+  const [importLearn, setImportLearn] = React.useState(true);
+  const [importOverwrite, setImportOverwrite] = React.useState(false);
+  const [importing, setImporting] = React.useState(false);
+  const [importWarnings, setImportWarnings] = React.useState<string[]>([]);
+  const importFileRef = React.useRef<HTMLInputElement>(null);
+
   // skill detail — MCP edit state (optimistic, rolls back on error)
   const [detailMcps, setDetailMcps] = React.useState<string[]>([]);
 
@@ -383,6 +394,70 @@ export default function SkillsPage() {
     const f = e.target.files?.[0];
     e.target.value = ""; // reset so picking the same file again re-fires
     if (f) uploadZip(f);
+  }
+
+  // ── Import a .md skill ────────────────────────────────────────────────────
+  // 与 .zip 上传的区别：这里只有一份 SKILL.md，后端会补齐 frontmatter，
+  // 并在 learn=true 时先用当前模型把文档改写成平台能用的词汇（工具名 / vulnclass id）。
+  async function doImport(overwrite = false) {
+    const md = importMd.trim();
+    if (!md) {
+      toast.error("先把 Markdown 内容贴进来，或选择一个 .md 文件");
+      return;
+    }
+    setImporting(true);
+    setImportWarnings([]);
+    try {
+      const r = await api.importSkill({
+        markdown: md,
+        name: importName.trim() || undefined,
+        learn: importLearn,
+        overwrite,
+      });
+      toast.success(
+        r.learned ? `已导入并重写 Skill：${r.name}` : `已导入 Skill：${r.name}`,
+        { description: r.warnings?.length ? `${r.warnings.length} 条提示` : undefined },
+      );
+      if (r.warnings?.length) setImportWarnings(r.warnings);
+      load();
+      if (!r.warnings?.length) {
+        // 有 warning 时保留面板，让人看清哪些引用平台没有。
+        setImportOpen(false);
+        setImportMd("");
+        setImportName("");
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (!overwrite && msg.includes("已存在")) {
+        if (window.confirm(`${msg}\n\n是否覆盖同名 Skill？`)) {
+          await doImport(true);
+          return;
+        }
+      } else {
+        toast.error("导入失败：" + msg);
+      }
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function onImportPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    if (f.size > 2 * 1024 * 1024) {
+      toast.error("文件太大（上限 2 MB）");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImportMd(String(reader.result ?? ""));
+      // 用文件名预填名称，省一次输入（可改）。
+      const base = f.name.replace(/\.(md|markdown|txt)$/i, "");
+      if (base) setImportName((cur) => cur || base);
+    };
+    reader.onerror = () => toast.error("读取文件失败");
+    reader.readAsText(f);
   }
 
   React.useEffect(() => {
@@ -758,6 +833,16 @@ export default function SkillsPage() {
               <UploadIcon className="size-3.5" />
               {uploading ? "上传中…" : "上传压缩包"}
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              onClick={() => setImportOpen(true)}
+              title="导入外部 SKILL.md（可让模型先重写成本平台的工具与漏洞类词汇）"
+            >
+              <FileTextIcon className="size-3.5" />
+              导入 .md
+            </Button>
           </div>
           {/* Radix viewport wraps children in a display:table div that grows with
               content — force it to block so long names truncate instead of
@@ -1011,6 +1096,112 @@ export default function SkillsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── 导入 .md 对话框 ── */}
+      <Sheet open={importOpen} onOpenChange={setImportOpen}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 data-[side=right]:sm:max-w-xl">
+          <SheetHeader className="border-b px-4 py-4">
+            <SheetTitle>导入 SKILL.md</SheetTitle>
+            <p className="text-muted-foreground text-xs">
+              贴入或选择一个外部 skill 文档。平台会补齐 frontmatter 并检查它引用的工具是否存在
+              ——不存在的不报错，只提示，避免一个笔误让整份文档装不进来。
+            </p>
+          </SheetHeader>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+            <div className="flex items-center gap-2">
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".md,.markdown,.txt,text/markdown"
+                className="hidden"
+                onChange={onImportPick}
+              />
+              <Button size="sm" variant="outline" onClick={() => importFileRef.current?.click()}>
+                <FileTextIcon className="size-3.5" />
+                选择 .md 文件
+              </Button>
+              <span className="text-muted-foreground text-xs">或在下方直接粘贴</span>
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label htmlFor="imp-name">
+                名称 <span className="text-muted-foreground text-xs font-normal">（可留空，从 frontmatter 或文件名推断）</span>
+              </Label>
+              <Input
+                id="imp-name"
+                placeholder="sqli-deepdive"
+                value={importName}
+                onChange={(e) => setImportName(e.target.value)}
+              />
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+              <Label htmlFor="imp-md">Markdown 正文</Label>
+              <Textarea
+                id="imp-md"
+                className="min-h-56 flex-1 resize-none font-mono text-sm leading-relaxed"
+                placeholder={"---\nname: my-skill\ndescription: 何时使用这个 skill\n---\n\n## 方法\n\n1. …"}
+                value={importMd}
+                onChange={(e) => setImportMd(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2 rounded-md border p-3">
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={importLearn}
+                  onCheckedChange={(v) => setImportLearn(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  让模型先学习并重写
+                  <span className="text-muted-foreground block text-xs">
+                    用当前 LLM 把文档改写成本平台的词汇：真实工具名（record_fact / mark_coverage /
+                    oob_request …）与标准 vulnclass id。需要已配置模型。
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={importOverwrite}
+                  onCheckedChange={(v) => setImportOverwrite(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  覆盖同名 Skill
+                  <span className="text-muted-foreground block text-xs">不勾选时遇到同名会先问你一次。</span>
+                </span>
+              </label>
+            </div>
+
+            {importWarnings.length > 0 && (
+              <div className="rounded-md border border-amber-500/40 p-3">
+                <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <AlertTriangleIcon className="size-3.5" />
+                  已导入，但有以下引用在平台上不存在
+                </p>
+                <ul className="text-muted-foreground list-disc pl-4 text-xs">
+                  {importWarnings.map((w) => (
+                    <li key={w} className="font-mono">
+                      {w}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+            <Button variant="ghost" onClick={() => setImportOpen(false)} disabled={importing}>
+              取消
+            </Button>
+            <Button onClick={() => void doImport(importOverwrite)} disabled={importing || !importMd.trim()}>
+              {importing ? "导入中…" : "导入"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* ── 新建 Skill 对话框 ── */}
       <Sheet open={newOpen} onOpenChange={setNewOpen}>

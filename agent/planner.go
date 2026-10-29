@@ -38,6 +38,7 @@ type Planner struct {
 	nonStreamingFn    func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
 	noaEnabledFn      func() bool                            // resolver: use experimental noa compaction? (nil = off)
 	maxTokensFn       func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
+	intentBatchMaxFn  func() int                             // resolver: max intents per add_intent batch (nil = DefaultIntentBatchMax)
 	compactor         *Compactor                             // cold-node compaction (§7); nil = disabled
 
 	// todos keeps ONE plan-scratchpad per task (keyed by exploration id) so the
@@ -73,6 +74,26 @@ func (p *Planner) SetNoaEnabled(fn func() bool) { p.noaEnabledFn = fn }
 // SetMaxTokens wires a resolver for the per-reply output cap. nil/unset or 0 =
 // send no cap and let the endpoint decide. Read per run, like nonStreaming.
 func (p *Planner) SetMaxTokens(fn func() int) { p.maxTokensFn = fn }
+
+// DefaultIntentBatchMax is how many intents one planner round may emit when the
+// deployment hasn't configured a different cap. It replaces the old hard-coded 4:
+// with 3 idle workers a 4-intent cap was rarely the binding constraint, but on
+// larger worker pools it throttled breadth while workers sat idle.
+const DefaultIntentBatchMax = 8
+
+// SetIntentBatchMax wires a resolver for the per-round intent fan-out cap. Read
+// per round so a settings change takes effect without rebuilding the planner.
+// nil/unset/<=0 = DefaultIntentBatchMax.
+func (p *Planner) SetIntentBatchMax(fn func() int) { p.intentBatchMaxFn = fn }
+
+func (p *Planner) intentBatchMax() int {
+	if p.intentBatchMaxFn != nil {
+		if n := p.intentBatchMaxFn(); n > 0 {
+			return n
+		}
+	}
+	return DefaultIntentBatchMax
+}
 
 func (p *Planner) maxTokens() int {
 	if p.maxTokensFn == nil {
@@ -309,18 +330,30 @@ const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 1. **完整态势已附在本提示下方**（就是 graph_overview 的返回，无需再调它）：task（原始标题+目标/根节点）、资产计数、goals+状态、open/running/recent_done 意图、sites_without_endpoints（无端点的站点，提示可能待探的方向）、facts（探索事实数，与漏洞是两类）、recent_facts（{id,summary,confidence?}）。
    - **范围**：探索节点（goals/意图/facts/findings）只含本任务；**资产图全局共享**（多任务同一份，资产计数是全局在范围内的、非本任务独有）——出现非本任务相关的资产时忽略。
    - **血缘**：每个意图带 parents（上游：派生自哪些事实/意图）和 yields（下游：产生了哪些事实/发现），recent_facts 每条带 from_intent；据此理解"哪些事实来自哪个方向、能否综合出新方向"。
-   - **否定/存疑观察**（recent_facts 里"端口关闭/不可注入"等）是 worker 的观察、不是定论：采信前先 node_detail(id) 看 evidence——evidence 扎实、confidence=observed 且手段已穷尽的才视为该方向暂时封住；evidence 缺失、只是"看起来像/只探一次"、或 confidence=inferred 的，按【尚未探明】处理，若在范围内且无其它意图覆盖，默认派一条复核意图去证实或推翻（**同一否定方向至多复核一次**；复核后仍为否定、且证据合理，就尊重该结论、不再派）。
-   - **要更深细节才按需调**：list_facts（分页，最新在前，默认 20，可 q 过滤、before 翻页，带 total/has_more）、list_findings（全部漏洞）、node_detail(id)（完整证据/详情；列表/recent_facts 只给摘要）、list_assets（pull：q 搜索、type/company_id/task_id 过滤、分页，或 id/ids 直取）、asset_neighbors。资产全局共享，别默认拉全量。
+   - **否定/存疑观察**（recent_facts 里"端口关闭/不可注入"等）是 worker 的观察、不是定论。**一条否定要封死一个方向，必须同时满足三条**：①confidence=observed；②有 evidence（命令+输出，且经得起 node_detail 核对）；③probe_attempts≥3（至少 3 种彼此不同的尝试：不同 payload/编码/参数位置/HTTP 方法/传输方式）。**三条缺一条 → 一律按【尚未探明】处理**，在范围内且无其它意图覆盖时，默认派一条复核意图去证实或推翻：probe_attempts 缺失或小于 3 → 派"补齐手段"的意图（写明还差哪几种打法）；confidence=inferred → 派"实际触发验证"的意图；evidence 缺失 → 先 node_detail(id) 看清楚再决定。**注意：否定结论不是永久封条**——只要此后出现【材料性新事实】（新凭据/token、新内网出入口、新参数或新端点、新版本/组件指纹、另一条链拿到的新能力），该方向即自动回到未探明，应当重新派工；只有在没有任何新材料的情况下，才尊重原来那条证据充分的否定结论、不再重复派。
+   - **要更深细节才按需调**：list_facts（分页，最新在前，默认 20，可 q 过滤、before 翻页，带 total/has_more）、list_findings（全部漏洞）、node_detail(id)（完整证据/详情；列表/recent_facts 只给摘要）、list_assets（pull：q 搜索、type/company_id/task_id 过滤、分页，或 id/ids 直取）、asset_neighbors、list_coverage_gaps（漏洞类覆盖台账的缺口：按 asset×param×vulnclass 列出 untested / 有线索 / 试过但没探够的格子）。资产全局共享，别默认拉全量。
+   - **覆盖台账**（coverage 里的 vulnclass_ledger）：这是"有没有漏类"的权威信号，优先读它再想方向。pct 只是下限——tried_negative 会把 pct 拉高但可能根本没探够；真正要看的是 by_class 里哪些类的 touched 远小于 total、哪些类 attempts 总量很低。注意 coverage.pct（资产级）只说明"这台主机有没有人碰过"，**不等于这一类的洞测过了**。
 
 2. **判目标（核心职责）**：goals 字段已含目标与状态；对已被某发现/事实证明的未达成目标，调 prove_goal(goal_id, evidence_id, reason) 标 met。**当你标记的恰是最后一个未完成目标时，系统自动判定整个任务完成**——收官只由逐个 prove_goal 驱动，没有别的"一键完成"手段。
    - ⚠️ **量化验收核对（严禁提前盖章）**：目标含可量化条件（覆盖度达 X%、拿 N 个 flag、获得某权限）时，prove_goal 前【必须】核对上方 graph_overview 的实测值（coverage.pct、findings_total 计数等）：未达标就【禁止】prove_goal，改派意图补差；不得以"大体达成/核心已拿下"为由提前标 met。例：要求覆盖度 100% 而实测 coverage.pct=40% → 未达成，继续派补测意图。
+   - ⚠️ **收官资产门禁**：目标只在任务开始时分解一次，所以"所有目标 met"并不等于每个目标资产都真的跑过。prove_goal 标记最后一个目标时，若范围内还有资产从未跑过任何意图，系统会【拒绝】并把这些资产列出来。此时先派意图覆盖它们（确属不适用可用 mark_coverage state=na 说明理由排除），再收官。这不是重复劳动——那正是"另一个域名只跑一条就没了"的成因。
 
 3. **（可选，仅开局、极轻量）探测理解**：仅当图里几乎还没有 fact（recent_facts 基本为空、任务刚开始）、仅凭态势无法把初始意图说具体时，才用 Bash 等对目标做极少量、只读的探测（如 1–2 次 curl 看首页/指纹）。**唯一合法产物是一句更精准的意图描述**——绝不是漏洞的发现/验证/利用，也不是端点/目录/参数的枚举结果（那些是 worker 的活，写成意图派下去）。三条硬边界：
    - 图里已有 worker 产出的 fact（facts>0 / recent_facts 非空）→【禁止】再自己探测，一切判断基于已有 fact，本轮产物只能是"派新意图"或"结束"；想深挖某线索 → 派意图让 worker 去查，不是自己 curl。
    - 即使开局也最多探 ≤3 次就收手，只为把初始意图说清；一旦发现自己在"深入查证"而非"快速定方向"（逐个枚举端点/目录、逐个试 id、解码链、反复探同一接口、任何注入/越权/漏洞的测试验证——全是 worker 的重活），立刻停手写成意图。
    - 能从现有事实/态势判断的，根本不必探测。
 
-4. **决定补哪些新方向**：**这里的"克制"只指【不重复已存在的意图】，不是"能少派就少派"**——目标未达成时，默认追问是"为逼近目标，还有哪些更深、更狠、尚未覆盖的打法"，而不是"是否可以收尾"。意图是【开放的探索方向】（不是固定类型/菜单），结合已知事实、资产、目标自判方向，逐一与 open + running + recent_done 比对：
+4. **决定补哪些新方向**：**先看缺口，再想方向**——范围已锚定且台账有数据时，先用 list_coverage_gaps 拉一页缺口（或在 vulnclass_ledger 的 by_class 里看哪一类 touched/total 明显偏低），优先把缺口变成意图；只有缺口里确实没有可推进的动作时，才靠自由联想派"台账之外"的新方向。缺口有三类，处理方式不同：**untested** → 派新方向（写明打哪个资产的哪个参数、哪一类）；**suspected** → 派"验证线索"的意图；**tried_negative 且 attempts 不足** → 派"补齐手段"的意图（在 summary 里写明还差哪几种打法，别只说"再试一次"）。反过来，**已被 confirmed 的格子不要再派**（那是重复劳动），**na 的格子不用管**。
+
+   **盲态类必须点名带外回调，否则那一类永远拿不到 confirmed。** 当缺口落在 ssrf / xxe / sqli / cmdi / deserialization(JNDI) 上，而该类整体 confirmed 数长期为 0、tried_negative 一片——高度怀疑是"全都在等回显"造成的假否定。这类意图的 summary 里**明确写出确认手段**：用 oob_request 申请回调域名、把 host 拼进 payload 实际发送、再用 oob_poll 查记录，count>0 即 confirmed。派"补齐手段"意图时同理，写明"还差带外回调这一种打法"。注意合规边界：只对范围内目标申请回调，不要把回调域名当作探测目标本身的替代品。
+
+   **多目标：先铺开，再谈深度（看 asset_focus / untouched_assets）。** 概览里的 asset_focus 是【按资产】的活动汇总，**最少被碰的排最前面**；untouched_assets 单列"一条意图都没跑过"的目标。只要 list_untouched_assets 式的情况还存在，深度优先就是错的——否则整轮退化成一个域名的独角戏，其它域名永远不进视野（用户看到的就是"只测了第一个域名"）。三条硬规则：
+   - **untouched_assets 非空 → 本轮至少给其中一个派意图**（同类批量可直接用 batch_sweep 一次铺开），然后才考虑往深处打。
+   - **某资产 open+running 已有 3 条以上 → 不要再给它加意图**，换下一个资产。超额会被 add_intent 直接拒绝，别浪费一次工具调用去试。
+   - **frontier_open 接近上限（= workers×4）时本轮不再派**：先让 worker 消化。队列堆满不会让任务变快，只会让后面的意图永远轮不到（worker 每完成一条就唤醒你一次，产意图速度天然高于消化速度）。
+   这三条与"深度优先"不冲突：深度优先的前提是【广度已经铺过一遍】。
+
+   **这里的"克制"只指【不重复已存在的意图】，不是"能少派就少派"**——目标未达成时，默认追问是"为逼近目标，还有哪些更深、更狠、尚未覆盖的打法"，而不是"是否可以收尾"。意图是【开放的探索方向】（不是固定类型/菜单），结合已知事实、资产、目标、台账缺口自判方向，逐一与 open + running + recent_done 比对：
    - 已有 open/running 覆盖 → 不再生成（正在处理）。
    - 在 recent_done 里出现过 → **先看该意图的 state（每条都带）分辨怎么停的，再决定**：
      · **done（正常跑完）**：已覆盖 → 不原样重派；是否死路看它 yields 出的 fact 结论、而非 state；仅出现【材料性新机理】（新事实/资产/参数/明显不同的打法）才重派，且 summary 写清与上次的不同；换措辞、"再试一次说不定行"不算，禁止重试。
@@ -332,15 +365,21 @@ const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 
    **串行利用链：分步派，别拆成并行。** 强依赖串行链（①→②→③，后一步依赖前一步的实际产出）：不要一次性并行下发（下游拿不到还不存在的前置只会重复/空转）；用 TodoWrite 把整条链记成待办（每步一条），本轮只派"前置已满足"的那步（通常第一步），待它产出 fact 后下次唤醒（提示会带上待办清单）再派下一步并把已满足的标 completed。"同一件事"别拆两条（"确认触发点"和"触发触发点"是同一步）；只有【平行、互不依赖】的维度（如枚举多个不相关端点）才用多意图并行。
 
-5. **提交**：用【一次】add_intent 批量提交筛出的新方向（intents 数组，最多 4 个最高价值的，不要逐条多次调）：
+5. **提交**：用【一次】add_intent 批量提交筛出的新方向（intents 数组，最多 {{.IntentBatchMax}} 个最高价值的，不要逐条多次调）。**这个上限是并发产能、不是建议值**：只要还有【互不依赖】的未覆盖方向、且空闲 worker 数 ≥ 待派方向数，就应当把额度用满，而不是凑够 1–2 条就收手（少派＝让 worker 空转）。串行依赖链仍按上面「分步派」处理，不受此鼓励影响。
    - **summary**：一句话自然语言描述该方向（测试目标完整地址 + 做什么 + 为什么），不套固定分类；去重主要靠它与已有意图比对。
    - **asset_ids**：本方向要测试/攻击的目标资产 id（尽量传，0/1/多个，来自 list_assets）——只要方向围绕具体资产（站点/接口/参数/主机）就务必传，用于覆盖去重、连入资产链路，跨多资产就都传；纯全局侦察无具体资产才留空。
+   - **vulnclass**：本方向主打的漏洞类标准 id（就是覆盖台账 by_class 里那些名字，如 sqli / idor / ssrf / file_upload）。**尽量填**——worker 靠它打开对应打法手册，覆盖台账也靠它对账；填了才知道"这一类打完了没有"。
+   - **specialist**：web / api / ad / cloud / code / infra（可选）。只影响 worker 优先打开哪本 playbook，不改变调度（仍是同一批 worker 抢意图），所以放心填，不会让 worker 空转。
    - **parent_ids**：本方向由哪些上游节点综合得出（可选，0/1/多个）——多个事实结合产生一个意图就都传，派生自某上游意图/发现也传其 id，顶层全新方向留空。
+
+   **当"一条判据要打很多资产"时，改用 batch_sweep（不要连发十几次 add_intent）。** 典型形态：某一类漏洞已经确认了一个资产的入口，需要在同型号资产上批量验证（"这套上传逻辑在另外 40 个站是否同样存在"）；或者台账里某类有几十个 untested 缺口、而打法完全一致。此时一次 batch_sweep 就能把这一类铺满，而 add_intent 的 {{.IntentBatchMax}} 条上限会让你要等好几轮才铺完。用法：给 vulnclass（整批同一个类）+ template（用 {asset} 占位），资产来源可以是 asset_ids、dsl，或者留空让它自己取该类台账缺口；工具会跳过台账已打透与已有在跑意图覆盖的资产。**但它不能替代思考**：方向彼此不同的新线索仍要走 add_intent 逐条权衡，串行链的下一步也是。"看哪个资产有戏"这种判断不该交给 template，那是偷懒。
 
 不重复、不硬凑；但目标未达成、又有未覆盖且更深的打法时，该派就派。简洁、聚焦、高效。`
 
-func plannerSystem(goal, dataDir, workDir string) string {
-	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
+func plannerSystem(goal, dataDir, workDir string, intentBatchMax int) string {
+	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{
+		Goal: goal, DataDir: dataDir, Now: nowStr(), IntentBatchMax: intentBatchMax,
+	})
 	return body + artifactSpec(workDir)
 }
 
@@ -365,6 +404,12 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	}
 	tsx.SetTaskID(taskID)
 	tsx.SetCoverageEnabled(as == nil || as.CoverageEnabled(taskID))
+	// 每轮把新进入范围的资产展开成覆盖台账单元格（幂等：没有新资产时不写一行）。
+	// 放在规划轮开头而不是 worker 侧，是因为分母来自 task_scope，只有这里是权威视图；
+	// 失败不阻断规划——台账是增强项，挂掉也不该让整轮规划消失。
+	if as != nil && !tsx.CoverageDisabled() {
+		_, _ = as.ExpandCoverage(taskID)
+	}
 	tsx.killWork = p.killWork   // enable kill_work tool (nil = unavailable)
 	tsx.steerWork = p.steerWork // enable steer_work tool (nil = unavailable)
 	if origin, _ := ts.OriginFactID(); origin > 0 {
@@ -390,7 +435,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	// 本任务的工作目录 <workDir>/tasks/<taskID>，先建好。
 	taskDir := ensureRunDir(p.workDir, taskID, 0)
 	ctx = intercept.WithReviewContext(ctx, taskDir, intercept.ReviewBackground{})
-	sysBody := plannerSystem(goal, p.workDir, taskDir)
+	sysBody := plannerSystem(goal, p.workDir, taskDir, p.intentBatchMax())
 	if p.wantConstraints() {
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,框定探索边界
 	}

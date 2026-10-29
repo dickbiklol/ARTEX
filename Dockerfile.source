@@ -1,0 +1,175 @@
+# syntax=docker/dockerfile:1
+#
+# 从源码自建镜像（VPS 一键用，宿主机不需要装 Go / Node）。
+#
+# 两个 Dockerfile 的分工：
+#   Dockerfile         只装运行时 + COPY 预编译二进制 dist/<arch>/artex —— CI 用（快）
+#   Dockerfile.source  在自己镜像里编前端(Next 静态导出) + 后端(Go)  —— VPS 用（自足）
+#
+# 直接用：
+#   docker build -f Dockerfile.source -t artex .
+#
+# 通常不用手动调它：docker-compose.yml 的 build.dockerfile 默认指向本文件，
+# 预构建镜像拉不到时 `docker compose up -d --build` 会自动走这里。
+#
+# 首次构建需要联网（npm ci + go mod download），耗时约 5–15 分钟，占 2–3 GB 磁盘。
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. 前端：Next 静态导出 → web/out
+# ─────────────────────────────────────────────────────────────────────────────
+# 单独一层，这样只改后端时前端产物可以命中缓存。
+FROM node:20-bookworm AS webui
+WORKDIR /src/web
+# 先只 COPY 依赖清单：package.json 没变就不重跑 npm ci
+COPY web/package.json web/package-lock.json ./
+# npm 缓存挂载：lock 没变时重跑不再重新下载整个依赖树。
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY web/ ./
+# NEXT_EXPORT=1 由 package.json 的 build:static 脚本设置 → 产出纯静态 web/out
+# .next/cache 是 Next 自己的增量编译缓存：不挂的话改一行前端也要全量重编（实测 ~5-6 分钟）。
+RUN --mount=type=cache,target=/src/web/.next/cache npm run build:static
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. 扫描器工具链（与 Dockerfile 中的 scanners stage 保持一致，改动请同步两处）
+# ─────────────────────────────────────────────────────────────────────────────
+# 平台内置 65 个命令配方，其中 nuclei / ffuf / subfinder / katana / dalfox / gau /
+# httpx / naabu / dnsx / gobuster / waybackurls 都是外部二进制。没有它们，模型会看到
+# 工具却收到 command not found。只想要面板：--build-arg WITH_SCANNERS=false
+FROM golang:1.26-bookworm AS scanners
+ARG TARGETOS=linux
+ARG TARGETARCH
+ARG WITH_SCANNERS=true
+ARG NUCLEI_VER=latest
+ARG SUBFINDER_VER=latest
+ARG KATANA_VER=latest
+ARG HTTPX_VER=latest
+ARG NAABU_VER=latest
+ARG FFUF_VER=latest
+ARG DALFOX_VER=latest
+ARG DNSX_VER=latest
+ARG GAU_VER=latest
+ARG GOBUSTER_VER=latest
+ARG WAYBACKURLS_VER=latest
+
+ENV CGO_ENABLED=0 GOBIN=/out GOFLAGS=-trimpath
+# 下载【官方预编译二进制】而不是 go install 现场编译。
+# go install 会把整个依赖树拉下来编译（nuclei 一家就带进 envoy/go-control-plane、
+# cncf/xds 等两百多个模块），实测这一层要 18 分钟；换成下载成品二进制后约 1 分钟。
+# 细节见 scripts/install-scanners.sh。
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl unzip ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+COPY scripts/install-scanners.sh /usr/local/bin/install-scanners.sh
+RUN chmod +x /usr/local/bin/install-scanners.sh && \
+    mkdir -p /out && \
+    if [ "$WITH_SCANNERS" = "true" ]; then \
+      ARTEX_INSTALL_SCANNERS=1 TARGETARCH="$TARGETARCH" GOBIN=/out \
+        NUCLEI_VER="$NUCLEI_VER" SUBFINDER_VER="$SUBFINDER_VER" KATANA_VER="$KATANA_VER" \
+        HTTPX_VER="$HTTPX_VER" NAABU_VER="$NAABU_VER" FFUF_VER="$FFUF_VER" \
+        DALFOX_VER="$DALFOX_VER" DNSX_VER="$DNSX_VER" GAU_VER="$GAU_VER" \
+        GOBUSTER_VER="$GOBUSTER_VER" WAYBACKURLS_VER="$WAYBACKURLS_VER" \
+        /usr/local/bin/install-scanners.sh; \
+    else \
+      echo "WITH_SCANNERS=false → 跳过扫描器"; \
+    fi && \
+    ls -l /out
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. 后端：Go 单二进制（内嵌前端）
+# ─────────────────────────────────────────────────────────────────────────────
+FROM golang:1.26-bookworm AS builder
+WORKDIR /src
+# 先只 COPY go.mod/go.sum：源码改动不会让依赖下载缓存失效
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+COPY . ./
+# 关键一步：-tags embedui 要求 server/webui/dist 在编译时存在（//go:embed all:webui/dist），
+# 所以必须先把前端产物放进去。没有它编译会直接失败——这正是"直接 docker build 报错"的原因。
+COPY --from=webui /src/web/out ./server/webui/dist
+# 版本号会显示在面板顶栏（cmd/artex/main.go 里的 var version）
+ARG ARTEX_VERSION=dev
+# go build 缓存挂载：只改几行 Go 代码时，未变的包直接复用编译产物（~5 分钟 → 几十秒）。
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOFLAGS=-trimpath \
+    go build -tags embedui \
+      -ldflags "-s -w -X main.version=${ARTEX_VERSION}" \
+      -o /out/artex ./cmd/artex && \
+    ls -lh /out/artex
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. 运行时
+# ─────────────────────────────────────────────────────────────────────────────
+FROM python:3.12-slim-bookworm
+ARG INSTALL_NUCLEI_TEMPLATES=false
+ARG INSTALL_SECLISTS=false
+ARG INSTALL_EXPLOITDB=false
+
+# 基础工具：这些在 bookworm 里都有，缺一个就是环境问题。
+# 扫描器逐个装、装不上就跳过 —— 不同 Debian 版本的打包情况不一致（bookworm 已经
+# 移除了 nikto 包），一个可选工具不应该让整个镜像构建失败。
+# perl 是给下面的 nikto 源码兜底用的。
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates ripgrep curl wget vim git jq unzip perl \
+      dnsutils iputils-ping netcat-openbsd inetutils-telnet whois nmap; \
+    for p in sqlmap nikto whatweb; do \
+      apt-get install -y --no-install-recommends "$p" \
+        || echo "WARN: apt 源里没有 $p，跳过"; \
+    done; \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -; \
+    apt-get install -y --no-install-recommends nodejs; \
+    rm -rf /var/lib/apt/lists/*
+
+# nikto 从 bookworm 起就没有 apt 包了 → 用官方仓库的 Perl 脚本兜底，保住 nikto 配方。
+# 用一层 sh 包装而不是直接软链 nikto.pl：nikto 会按 $0 找它的 databases/ 目录，
+# 软链会让它去 /usr/local/bin 下找。
+RUN if ! command -v nikto >/dev/null 2>&1; then \
+      git clone --depth 1 https://github.com/sullo/nikto /opt/nikto && \
+      rm -rf /opt/nikto/.git && \
+      printf '#!/bin/sh\nexec perl /opt/nikto/program/nikto.pl "$@"\n' > /usr/local/bin/nikto && \
+      chmod +x /usr/local/bin/nikto ; \
+    fi
+
+# arjun 参数枚举 / dirsearch 目录扫描 / wafw00f WAF 指纹
+RUN pip install --no-cache-dir --disable-pip-version-check arjun dirsearch wafw00f
+
+COPY --from=scanners /out/ /usr/local/bin/
+
+# nuclei 模板（可选）：装在默认查找路径，配方不传 -t 也能命中
+RUN if [ "$INSTALL_NUCLEI_TEMPLATES" = "true" ]; then \
+      git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates /root/nuclei-templates && \
+      rm -rf /root/nuclei-templates/.git ; \
+    fi
+
+# SecLists（可选）：ffuf / gobuster 的默认词表来源
+RUN if [ "$INSTALL_SECLISTS" = "true" ]; then \
+      git clone --depth 1 https://github.com/danielmiessler/SecLists /opt/seclists && \
+      rm -rf /opt/seclists/.git ; \
+    fi
+
+# exploitdb / searchsploit（可选）
+RUN if [ "$INSTALL_EXPLOITDB" = "true" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends exploitdb && \
+      rm -rf /var/lib/apt/lists/* ; \
+    fi
+
+# Playwright MCP / CLI / Chromium（浏览器 MCP 与 api-recon 的运行时枚举要用）
+RUN npm install -g @playwright/mcp@latest @playwright/cli@latest playwright@latest \
+    && playwright-cli --help \
+    && playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /out/artex /app/artex
+COPY start.sh /app/start.sh
+RUN chmod +x /app/artex /app/start.sh
+COPY skills/ /app/skills/
+VOLUME ["/app/data"]
+EXPOSE 8787 8788
+ENTRYPOINT ["/app/start.sh"]
+CMD ["-addr", ":8787", "-proxy", "127.0.0.1:8788"]

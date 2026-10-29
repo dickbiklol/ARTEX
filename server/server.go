@@ -220,6 +220,10 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
 		domainReg := buildDomainReg(m.Assets())
 		wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
+		// 前沿背压：开放意图上限 = workers×4（每轮实时读，改设置即生效，无需重启）。
+		// 没有它时规划者产意图的速度会高于 worker 消费速度（每完成一条意图就唤醒一次），
+		// 表现为"一堆 pending 永远轮不到"。4 倍给足弹性：worker 全部在跑时仍有一轮缓冲。
+		agent.OpenIntentCap = func() int { return m.Workers() * 4 }
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
 		s.seedOrchestrationTools() // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
 		if err := s.seedFindingRetester(); err != nil {
@@ -701,6 +705,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-archives/delete/batch", s.deleteTaskArchivesBatch)
 	mux.HandleFunc("GET /api/tasks/{id}/coverage", s.taskCoverage)
 	mux.HandleFunc("GET /api/tasks/{id}/coverage-graph", s.taskCoverageGraph)
+	// 漏洞类覆盖台账（vulnclass × asset），与规划者看的是同一份数据。
+	mux.HandleFunc("GET /api/tasks/{id}/coverage-ledger", s.taskCoverageLedger)
 	mux.HandleFunc("GET /api/tasks/{id}/asset-refs", s.taskAssetRefs)
 	mux.HandleFunc("POST /api/tasks/{id}/assets", s.attachTaskAssets)
 	mux.HandleFunc("DELETE /api/tasks/{id}/assets/{assetID}", s.detachTaskAsset)
@@ -874,10 +880,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sync/scopesentry/projects", s.syncSSProjects)
 	mux.HandleFunc("GET /api/sync/scopesentry/tasks", s.syncSSTasks)
 	mux.HandleFunc("POST /api/sync/scopesentry/sync", s.syncSSRun)
+	// 目标发现（discovery）：AI 自己产关键词 → 搜索 → 过滤 → 候选审批 → 建任务。
+	// 注意 /start 是唯一把候选变成测试范围的入口，且只消费 approved 行。
+	mux.HandleFunc("POST /api/discovery/runs", s.discoveryCreateRun)
+	mux.HandleFunc("GET /api/discovery/runs", s.discoveryListRuns)
+	mux.HandleFunc("GET /api/discovery/runs/{id}", s.discoveryGetRun)
+	mux.HandleFunc("DELETE /api/discovery/runs/{id}", s.discoveryDeleteRun)
+	mux.HandleFunc("GET /api/discovery/runs/{id}/candidates", s.discoveryListCandidates)
+	mux.HandleFunc("POST /api/discovery/runs/{id}/candidates/status", s.discoveryBulkStatus)
+	mux.HandleFunc("POST /api/discovery/runs/{id}/start", s.discoveryStart)
+	mux.HandleFunc("PATCH /api/discovery/candidates/{id}", s.discoveryPatchCandidate)
 	// Skill CRUD (文件系统)
 	mux.HandleFunc("GET /api/skills", s.fsListSkills)
 	mux.HandleFunc("POST /api/skills", s.fsCreateSkill)
 	mux.HandleFunc("POST /api/skills/upload", s.fsUploadSkill)
+	// import 单个 .md（可选 learn=true 让模型先改写成平台工具词汇），并自动绑定 agent
+	mux.HandleFunc("POST /api/skills/import", s.fsImportSkill)
 	mux.HandleFunc("DELETE /api/skills/{name}", s.fsDeleteSkill)
 	mux.HandleFunc("GET /api/skills/missing", s.fsMissingSkills)   // 未命中(想调但不存在)的 skill 名
 	mux.HandleFunc("GET /api/skills/{name}/usage", s.fsSkillUsage) // 单个 skill 的最近调用
@@ -1605,30 +1623,83 @@ var (
 
 // parseTarget extracts a target (scheme, host, port) from free text, supporting
 // full URLs, IP[:port] and domain[:port]. ok=false when nothing parseable.
+// It is the single-target view of parseTargets (first match wins).
 func parseTarget(text string) (scheme, host string, port int, ok bool) {
-	text = strings.TrimSpace(text)
-	if m := reURL.FindString(text); m != "" {
-		if u, err := url.Parse(m); err == nil && u.Hostname() != "" {
-			scheme = strings.ToLower(u.Scheme)
-			host = strings.ToLower(u.Hostname())
-			port = portOr(u.Port(), defaultPort(scheme))
-			return scheme, host, port, true
-		}
-	}
-	if m := reIPPort.FindStringSubmatch(text); m != nil {
-		host = m[1]
-		port = portOr(m[2], 80)
-		return schemeForPort(port), host, port, true
-	}
-	if m := reDomain.FindStringSubmatch(text); m != nil {
-		host = strings.ToLower(m[1])
-		if m[2] == "" {
-			return "https", host, 443, true
-		}
-		port = portOr(m[2], 443)
-		return schemeForPort(port), host, port, true
+	if ts := parseTargets(text); len(ts) > 0 {
+		return ts[0].Scheme, ts[0].Host, ts[0].Port, true
 	}
 	return "", "", 0, false
+}
+
+// seedTarget is one target extracted from free text.
+type seedTarget struct {
+	Scheme string
+	Host   string
+	Port   int
+}
+
+// MaxSeedTargets bounds how many targets one task may seed from free text. Prose can
+// contain dozens of domain-shaped tokens, and seeding every one would silently
+// declare a huge test scope. 32 covers realistic "paste a list of hosts" usage.
+const MaxSeedTargets = 32
+
+// parseTargets extracts EVERY target from free text (URLs, IP[:port],
+// domain[:port]) instead of only the first one.
+//
+// Rationale: a task naming five domains used to seed exactly one asset, because
+// parseTarget returned the first match. The other four then had to be "discovered"
+// by an agent — and since the planner's graph overview carries no asset list, it
+// never learned they existed. That is why multi-domain tasks explored a single
+// domain and appeared to ignore the rest.
+//
+// Scan order is URLs first (they carry the precise scheme+port), then bare
+// IP[:port], then domains. Results are deduped by host, so the domain-shaped match
+// inside a URL does not add a second, port-less entry for the same target.
+func parseTargets(text string) []seedTarget {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	out := make([]seedTarget, 0, 4)
+	seen := map[string]bool{}
+	// add reports true when the cap was reached and scanning should stop.
+	add := func(scheme, host string, port int) bool {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host == "" || seen[host] {
+			return false
+		}
+		seen[host] = true
+		out = append(out, seedTarget{Scheme: scheme, Host: host, Port: port})
+		return len(out) >= MaxSeedTargets
+	}
+
+	for _, m := range reURL.FindAllString(text, -1) {
+		u, err := url.Parse(m)
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		scheme := strings.ToLower(u.Scheme)
+		if add(scheme, u.Hostname(), portOr(u.Port(), defaultPort(scheme))) {
+			return out
+		}
+	}
+	for _, m := range reIPPort.FindAllStringSubmatch(text, -1) {
+		port := portOr(m[2], 80)
+		if add(schemeForPort(port), m[1], port) {
+			return out
+		}
+	}
+	for _, m := range reDomain.FindAllStringSubmatch(text, -1) {
+		scheme, port := "https", 443
+		if m[2] != "" {
+			port = portOr(m[2], 443)
+			scheme = schemeForPort(port)
+		}
+		if add(scheme, m[1], port) {
+			return out
+		}
+	}
+	return out
 }
 
 func portOr(s string, d int) int {
@@ -1637,6 +1708,7 @@ func portOr(s string, d int) int {
 	}
 	return d
 }
+
 func defaultPort(scheme string) int {
 	if scheme == "http" {
 		return 80
@@ -1665,43 +1737,70 @@ func (s *Server) llmHost() string {
 }
 
 func (s *Server) seed(t *Task, text string) {
-	scheme, host, port, ok := parseTarget(text)
-	if !ok {
+	targets := parseTargets(text)
+	if len(targets) == 0 {
 		log.Printf("[seed] task %s: 未能从 %q 解析出目标 host/IP，不创建站点（请手动配置 scope）", t.ID, text)
 		return
 	}
-	// P0-1 guard: never treat the configured LLM gateway as a target.
-	if gw := s.llmHost(); gw != "" && host == gw {
-		log.Printf("[seed] task %s: 目标 %q 是 LLM 网关，拒绝作为渗透目标", t.ID, host)
+	as := s.m.Assets()
+	if as == nil {
 		return
 	}
+	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
+	gw := s.llmHost()
 
-	u := scheme + "://" + host
-	if !(scheme == "https" && port == 443) && !(scheme == "http" && port == 80) {
-		u += ":" + strconv.Itoa(port)
-	}
-	var rootID int64
-	if as := s.m.Assets(); as != nil {
-		taskID, _ := strconv.ParseInt(t.ID, 10, 64)
-		if net.ParseIP(host) != nil {
-			rootID, _ = as.UpsertIP(db.UpsertIPReq{IP: host, TaskID: taskID})
-		} else if scheme == "https" || scheme == "http" {
-			rootID, _ = as.UpsertHTTPService(db.UpsertHTTPServiceReq{URL: u, TaskID: taskID})
-		} else {
-			rootID, _ = as.UpsertRootDomain(db.UpsertRootDomainReq{Domain: host, TaskID: taskID})
+	// Seed EVERY target, not just the first: a multi-domain task that registers one
+	// asset leaves the others invisible to the planner (they are not in scope, not in
+	// the coverage denominator, and not in the overview), so the whole run collapses
+	// onto whichever domain happened to be named first.
+	seeded := 0
+	for _, tg := range targets {
+		// P0-1 guard: never treat the configured LLM gateway as a target.
+		if gw != "" && tg.Host == gw {
+			log.Printf("[seed] task %s: 目标 %q 是 LLM 网关，拒绝作为渗透目标", t.ID, tg.Host)
+			continue
 		}
-		if rootID > 0 {
-			_ = as.SetTaskAssetSource(taskID, rootID, "task", "由任务描述或目标初始化", nil)
+		u := tg.Scheme + "://" + tg.Host
+		if !(tg.Scheme == "https" && tg.Port == 443) && !(tg.Scheme == "http" && tg.Port == 80) {
+			u += ":" + strconv.Itoa(tg.Port)
 		}
-	}
-	// anchor the seeded assets to this task's begin root as lineage/provenance
-	// (the asset graph is global and shared; anchoring no longer gates reads).
-	if rootID > 0 {
+		isIP := net.ParseIP(tg.Host) != nil
+		var rootID int64
+		var err error
+		switch {
+		case isIP:
+			rootID, err = as.UpsertIP(db.UpsertIPReq{IP: tg.Host, TaskID: taskID})
+		case tg.Scheme == "https" || tg.Scheme == "http":
+			rootID, err = as.UpsertHTTPService(db.UpsertHTTPServiceReq{URL: u, TaskID: taskID})
+		default:
+			rootID, err = as.UpsertRootDomain(db.UpsertRootDomainReq{Domain: tg.Host, TaskID: taskID})
+		}
+		if err != nil || rootID <= 0 {
+			log.Printf("[seed] task %s: 目标 %s 建资产失败: %v", t.ID, u, err)
+			continue
+		}
+		_ = as.SetTaskAssetSource(taskID, rootID, "task", "由任务描述或目标初始化", nil)
+		// anchor the seeded asset to this task's begin root as lineage/provenance
+		// (the asset graph is global and shared; anchoring no longer gates reads).
 		if begin, _ := t.Store.OriginFactID(); begin > 0 {
 			_ = t.Store.Anchor(begin, rootID)
 		}
+		// Record the implied scope for this target as well. Without it the asset exists
+		// but is NOT in the task's scope, so it is excluded from coverage expansion and
+		// from scope-filtered asset queries — i.e. still invisible to the planner.
+		scopeType := "service"
+		if isIP {
+			scopeType = "ip"
+		}
+		if err := as.AddAutoScope(taskID, scopeType, tg.Host, u, tg.Host); err != nil {
+			log.Printf("[seed] task %s: 目标 %s 写 scope 失败: %v", t.ID, u, err)
+		}
+		seeded++
+		log.Printf("[seed] task %s: 目标站点 %s", t.ID, u)
 	}
-	log.Printf("[seed] task %s: 目标站点 %s", t.ID, u)
+	if seeded > 1 {
+		log.Printf("[seed] task %s: 共解析并初始化 %d 个目标（候选 %d 个）", t.ID, seeded, len(targets))
+	}
 	// 不在这里 Notify:首轮是否触发统一由 engine.Run 的 HasActiveIntent 决定(种子意图任务
 	// 跳过首轮)。seed 早于 Run 执行,若在此 Notify 会 buffered 到通道、被 plannerLoop 启动时
 	// 消费掉而绕过 Run 的门控 → 种子任务仍误触发首轮。
@@ -1762,6 +1861,82 @@ func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
 	}
 	cov.Enabled = true
 	writeJSON(w, 200, cov)
+}
+
+// taskCoverageLedger returns the vulnclass × asset coverage ledger — the same data
+// the planner reads to decide what is left to test.
+//
+// The asset-type figure from /coverage answers "how many assets were touched". It
+// cannot answer "which vulnerability classes are still untested on which asset",
+// which is what actually predicts missed findings: an engagement can show 100%
+// asset coverage while never having tried SSRF anywhere. This endpoint exposes that
+// second question to the panel.
+//
+// Query: vulnclass (optional filter), asset_id (optional filter), limit (gaps page).
+func (s *Server) taskCoverageLedger(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.m.Task(r.PathValue("id"))
+	if !ok {
+		writeErr(w, 404, "task not found")
+		return
+	}
+	as := s.m.Assets()
+	if as == nil {
+		writeErr(w, 503, "asset store 未启用")
+		return
+	}
+	// 覆盖度功能关闭 → 与 /coverage 保持一致：短路返回 enabled:false，前端隐藏。
+	if !t.CoverageEnabled {
+		writeJSON(w, 200, map[string]any{"enabled": false, "by_class": []any{}, "gaps": []any{}})
+		return
+	}
+	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
+
+	sum, err := as.CoverageSummary(taskID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if sum == nil {
+		sum = &db.CoverageSummary{}
+	}
+
+	vc := strings.TrimSpace(r.URL.Query().Get("vulnclass"))
+	assetID, _ := strconv.ParseInt(r.URL.Query().Get("asset_id"), 10, 64)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	gaps, gapsTotal, err := as.ListCoverageGaps(taskID, vc, assetID, limit)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+
+	byClass := sum.ByClass
+	if byClass == nil {
+		byClass = []db.CoverageClassStat{}
+	}
+	if gaps == nil {
+		gaps = []db.CoverageGap{}
+	}
+	writeJSON(w, 200, map[string]any{
+		"enabled":    true,
+		"cells":      sum.Cells,
+		"touched":    sum.Touched,
+		"confirmed":  sum.Confirmed,
+		"pct":        sum.Pct,
+		"by_class":   byClass,
+		"gaps":       gaps,
+		"gaps_total": gapsTotal,
+		// 供前端把 class id 翻成人话，避免两边各维护一份名字表。
+		"catalog": vulnClassCatalogDTO(),
+	})
+}
+
+// vulnClassCatalogDTO flattens the vulnclass catalog for the panel (id → label).
+func vulnClassCatalogDTO() []map[string]string {
+	out := make([]map[string]string, 0, len(db.VulnClasses))
+	for _, c := range db.VulnClasses {
+		out = append(out, map[string]string{"id": c.Key, "label": c.Name})
+	}
+	return out
 }
 
 // taskCoverageGraph returns the force-directed asset coverage graph for a task:

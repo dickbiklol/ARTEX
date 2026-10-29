@@ -1,0 +1,2462 @@
+[
+  {
+    "key": "amass",
+    "description": "子域名枚举和网络映射工具\n\nAmass是一个深度子域名枚举和网络映射工具，通过多种技术发现目标域名的子域名。\n\n**主要功能：**\n- 被动和主动子域名枚举\n- 多种数据源集成\n- 网络映射和可视化\n- 证书透明度日志查询\n\n**使用场景：**\n- 子域名发现\n- 资产发现\n- 渗透测试信息收集\n- Bug bounty侦察",
+    "schema": {
+      "properties": {
+        "domain": {
+          "description": "目标域名",
+          "type": "string"
+        },
+        "mode": {
+          "default": "enum",
+          "description": "运行模式（Amass子命令）：\n- `enum`: 子域名枚举\n- `intel`: 威胁情报模式\n- `viz`: 结果可视化\n\n**注意：** Amass使用子命令形式，需作为第一个位置参数。",
+          "enum": [
+            "enum",
+            "intel",
+            "viz"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "amass -d {domain} {{#mode}}{mode}{{/mode}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "api-schema-analyzer",
+    "description": "API模式分析工具，识别潜在安全问题\n\n调用 `spectral lint` 对 OpenAPI/Swagger/GraphQL 模式进行静态分析，可结合自定义规则集或输出格式。",
+    "schema": {
+      "properties": {
+        "schema_url": {
+          "description": "API模式文件或URL（传递给 spectral lint 的目标）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "spectral lint {schema_url}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "arjun",
+    "description": "HTTP参数发现工具\n\nArjun是一个HTTP参数发现工具，用于发现Web应用中的隐藏参数。\n\n**主要功能：**\n- HTTP参数发现\n- 多种HTTP方法支持\n- 多线程支持\n- 稳定模式\n\n**使用场景：**\n- 参数发现\n- Web应用安全测试\n- Bug bounty侦察\n- 安全测试",
+    "schema": {
+      "properties": {
+        "method": {
+          "default": "GET",
+          "description": "HTTP方法（GET, POST等）",
+          "type": "string"
+        },
+        "stable": {
+          "default": false,
+          "description": "使用稳定模式",
+          "type": "boolean"
+        },
+        "threads": {
+          "default": 25,
+          "description": "线程数",
+          "type": "integer"
+        },
+        "url": {
+          "description": "目标URL",
+          "type": "string"
+        },
+        "wordlist": {
+          "description": "自定义字典文件",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "arjun -u {url} {{#method}}-m {method}{{/method}} {{#wordlist}}-w {wordlist}{{/wordlist}} {{#threads}}-t {threads}{{/threads}} {{#stable}}--stable{{/stable}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "arp-scan",
+    "description": "ARP网络发现工具\n\nArp-scan是一个ARP网络发现工具，用于发现本地网络中的活动主机。\n\n**主要功能：**\n- ARP扫描\n- 本地网络发现\n- MAC地址识别\n- 快速扫描\n\n**使用场景：**\n- 本地网络发现\n- 主机发现\n- 网络映射\n- 渗透测试",
+    "schema": {
+      "properties": {
+        "interface": {
+          "description": "网络接口",
+          "type": "string"
+        },
+        "local_network": {
+          "default": false,
+          "description": "扫描本地网络",
+          "type": "boolean"
+        },
+        "target": {
+          "description": "目标IP范围（如果不使用local_network）",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "arp-scan {{#interface}}-I {interface}{{/interface}} {{#local_network}}-l{{/local_network}} {{#target}}{target}{{/target}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "binwalk",
+    "description": "固件和文件分析工具\n\nBinwalk是一个固件分析工具，用于分析、提取和逆向工程固件镜像。\n\n**主要功能：**\n- 文件签名识别\n- 文件提取\n- 熵分析\n- 固件分析\n\n**使用场景：**\n- 固件分析\n- 文件格式识别\n- 数据提取\n- 逆向工程",
+    "schema": {
+      "properties": {
+        "extract": {
+          "default": false,
+          "description": "提取发现的文件",
+          "type": "boolean"
+        },
+        "file_path": {
+          "description": "要分析的文件路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "binwalk {{#extract}}-e{{/extract}} {file_path}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "bloodhound",
+    "description": "Active Directory 攻击路径分析和可视化工具\n\nBloodHound 是一个 Active Directory 攻击路径分析和可视化工具，通过收集域内信息并分析攻击路径。\n\n**主要功能：**\n- 域信息收集\n- 攻击路径分析\n- 权限关系可视化\n- 最短攻击路径计算\n- 高风险路径识别\n\n**使用场景：**\n- Active Directory 安全评估\n- 后渗透测试\n- 域环境审计\n- 红队演练\n\n**注意事项：**\n- 需要域用户凭据\n- 需要 Neo4j 数据库支持\n- 收集过程可能需要较长时间\n- 建议在授权环境中使用",
+    "schema": {
+      "properties": {
+        "collection_method": {
+          "default": "All",
+          "description": "收集模式 (All, ACL, DCOM, LocalAdmin, RDP 等)",
+          "type": "string"
+        },
+        "dc": {
+          "description": "域控制器 IP 地址",
+          "type": "string"
+        },
+        "domain": {
+          "description": "目标域名",
+          "type": "string"
+        },
+        "password": {
+          "description": "域用户密码",
+          "type": "string"
+        },
+        "username": {
+          "description": "域用户名",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "bloodhound-python {{#domain}}-d {domain}{{/domain}} {{#username}}-u {username}{{/username}} {{#password}}-p {password}{{/password}} {{#collection_method}}-c {collection_method}{{/collection_method}} {{#dc}}-dc {dc}{{/dc}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "checkov",
+    "description": "基础设施即代码安全扫描工具\n\nCheckov是一个静态代码分析工具，用于基础设施即代码（IaC）的安全扫描。\n\n**主要功能：**\n- 支持多种IaC框架（Terraform, CloudFormation, Kubernetes等）\n- 数百个内置策略\n- 自定义策略支持\n- CI/CD集成\n\n**使用场景：**\n- IaC安全扫描\n- 云配置审计\n- 安全策略检查\n- 合规性检查",
+    "schema": {
+      "properties": {
+        "check": {
+          "description": "要运行的特定检查",
+          "type": "string"
+        },
+        "directory": {
+          "default": ".",
+          "description": "要扫描的目录",
+          "type": "string"
+        },
+        "framework": {
+          "description": "要扫描的框架（terraform, cloudformation, kubernetes等）",
+          "type": "string"
+        },
+        "output_format": {
+          "default": "json",
+          "description": "输出格式（json, yaml, cli）",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "checkov {{#directory}}-d {directory}{{/directory}} {{#framework}}--framework {framework}{{/framework}} {{#check}}--check {check}{{/check}} {{#output_format}}--output {output_format}{{/output_format}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "checksec",
+    "description": "二进制安全特性检查工具\n\nChecksec是一个用于检查二进制文件安全特性的工具。\n\n**主要功能：**\n- 安全特性检查\n- 保护机制检测\n- 多种架构支持\n- 详细报告\n\n**使用场景：**\n- 二进制安全分析\n- 保护机制检查\n- 漏洞研究\n- 安全评估",
+    "schema": {
+      "properties": {
+        "binary": {
+          "description": "要检查的二进制文件路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binary"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "checksec {binary}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "cloudmapper",
+    "description": "AWS网络可视化和安全分析工具\n\nCloudMapper是一个AWS网络可视化和安全分析工具。\n\n**主要功能：**\n- AWS网络可视化\n- 安全分析\n- 网络映射\n- 管理员查找\n\n**使用场景：**\n- AWS网络分析\n- 安全评估\n- 网络可视化\n- 安全审计",
+    "schema": {
+      "properties": {
+        "account": {
+          "description": "要分析的AWS账户",
+          "type": "string"
+        },
+        "action": {
+          "default": "collect",
+          "description": "要执行的操作（collect, prepare, webserver, find_admins等）",
+          "type": "string"
+        },
+        "config": {
+          "default": "config.json",
+          "description": "配置文件路径",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "cloudmapper {{#account}}--account {account}{{/account}} {{#config}}--config {config}{{/config}} {{#action}}{action}{{/action}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "dalfox",
+    "description": "高级XSS漏洞扫描器\n\nDalfox是一个高级XSS漏洞扫描器，支持多种XSS检测技术。\n\n**主要功能：**\n- XSS漏洞检测\n- 盲XSS测试\n- DOM挖掘\n- 字典挖掘\n\n**使用场景：**\n- XSS漏洞测试\n- Web应用安全测试\n- Bug bounty侦察\n- 安全测试",
+    "schema": {
+      "properties": {
+        "blind": {
+          "description": "盲XSS回调地址（例如Burp Collaborator URL）",
+          "type": "string"
+        },
+        "mining_dict": {
+          "default": true,
+          "description": "启用字典挖掘",
+          "type": "boolean"
+        },
+        "mining_dom": {
+          "default": true,
+          "description": "启用DOM挖掘",
+          "type": "boolean"
+        },
+        "pipe_mode": {
+          "default": false,
+          "description": "使用管道模式输入",
+          "type": "boolean"
+        },
+        "url": {
+          "description": "目标URL。dalfox 单目标模式为子命令 url，此处作为 url 后的第一个位置参数传入。\n示例等价 CLI：dalfox url \"http://target/page?q=test\"",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "dalfox url {{#pipe_mode}}--pipe{{/pipe_mode}} {{#blind}}--blind {blind}{{/blind}} {{#mining_dom}}--mining-dom{{/mining_dom}} {{#mining_dict}}--mining-dict{{/mining_dict}} {url}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "dirsearch",
+    "description": "高级目录和文件发现工具\n\nDirsearch是一个高级Web内容扫描器，用于发现目录和文件。\n\n**主要功能：**\n- 快速目录和文件发现\n- 多线程支持\n- 递归扫描\n- 扩展名过滤\n\n**使用场景：**\n- Web应用安全测试\n- 目录枚举\n- 文件发现\n- 渗透测试",
+    "schema": {
+      "properties": {
+        "extensions": {
+          "default": "php,html,js,txt,xml,json",
+          "description": "文件扩展名（逗号分隔）",
+          "type": "string"
+        },
+        "recursive": {
+          "default": false,
+          "description": "启用递归扫描",
+          "type": "boolean"
+        },
+        "threads": {
+          "default": 30,
+          "description": "线程数",
+          "type": "integer"
+        },
+        "url": {
+          "description": "目标URL",
+          "type": "string"
+        },
+        "wordlist": {
+          "description": "字典文件路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "dirsearch -u {url} {{#extensions}}-e {extensions}{{/extensions}} {{#wordlist}}-w {wordlist}{{/wordlist}} {{#threads}}-t {threads}{{/threads}} {{#recursive}}-r{{/recursive}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "dnsenum",
+    "description": "DNS枚举工具\n\nDNSenum是一个DNS信息收集工具，用于枚举DNS信息。\n\n**主要功能：**\n- DNS信息收集\n- 子域名枚举\n- 区域传输测试\n- 反向查找\n\n**使用场景：**\n- DNS枚举\n- 子域名发现\n- 网络侦察\n- 渗透测试",
+    "schema": {
+      "properties": {
+        "dns_server": {
+          "description": "要使用的DNS服务器",
+          "type": "string"
+        },
+        "domain": {
+          "description": "目标域名",
+          "type": "string"
+        },
+        "wordlist": {
+          "description": "用于暴力破解的字典文件",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "dnsenum {{#dns_server}}-n {dns_server}{{/dns_server}} {{#wordlist}}-f {wordlist}{{/wordlist}} {domain}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "dotdotpwn",
+    "description": "目录遍历漏洞测试工具\n\nDotDotPwn是一个目录遍历漏洞测试工具，支持多种协议。\n\n**主要功能：**\n- 目录遍历测试\n- 多种协议支持（HTTP, FTP, TFTP等）\n- 自动化测试\n- 报告生成\n\n**使用场景：**\n- 目录遍历漏洞测试\n- Web应用安全测试\n- 渗透测试\n- 漏洞验证",
+    "schema": {
+      "properties": {
+        "module": {
+          "default": "http",
+          "description": "要使用的模块（http, ftp, tftp等）",
+          "type": "string"
+        },
+        "target": {
+          "description": "目标主机名或IP",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "dotdotpwn -h {target} {{#module}}-m {module}{{/module}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "enum4linux-ng",
+    "description": "高级SMB枚举工具（Enum4linux的下一代版本）\n\nEnum4linux-ng是Enum4linux的下一代版本，提供更强大的SMB枚举功能。\n\n**主要功能：**\n- SMB共享枚举\n- 用户和组枚举\n- 策略枚举\n- 系统信息收集\n\n**使用场景：**\n- Windows系统渗透测试\n- SMB安全评估\n- 域环境侦察\n- 安全测试",
+    "schema": {
+      "properties": {
+        "domain": {
+          "description": "域名",
+          "type": "string"
+        },
+        "groups": {
+          "default": true,
+          "description": "枚举组",
+          "type": "boolean"
+        },
+        "password": {
+          "description": "密码",
+          "type": "string"
+        },
+        "policy": {
+          "default": true,
+          "description": "枚举策略",
+          "type": "boolean"
+        },
+        "shares": {
+          "default": true,
+          "description": "枚举共享",
+          "type": "boolean"
+        },
+        "target": {
+          "description": "目标IP地址",
+          "type": "string"
+        },
+        "username": {
+          "description": "用户名",
+          "type": "string"
+        },
+        "users": {
+          "default": true,
+          "description": "枚举用户",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "enum4linux-ng {{#username}}-u {username}{{/username}} {{#password}}-p {password}{{/password}} {{#domain}}-d {domain}{{/domain}} {{#shares}}-S{{/shares}} {{#users}}-U{{/users}} {{#groups}}-G{{/groups}} {{#policy}}-P{{/policy}} {target}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "exiftool",
+    "description": "元数据提取工具\n\nExifTool用于读取、写入和编辑各种文件格式的元数据。\n\n**主要功能：**\n- 元数据提取\n- 多种文件格式支持\n- 元数据编辑\n- 批量处理\n\n**使用场景：**\n- 取证分析\n- 元数据检查\n- 隐私保护\n- 文件分析",
+    "schema": {
+      "properties": {
+        "file_path": {
+          "description": "要分析的文件路径",
+          "type": "string"
+        },
+        "output_csv": {
+          "default": false,
+          "description": "以CSV格式输出（等同于 -csv）",
+          "type": "boolean"
+        },
+        "output_json": {
+          "default": false,
+          "description": "以JSON格式输出（等同于 -json）",
+          "type": "boolean"
+        },
+        "output_xml": {
+          "default": false,
+          "description": "以XML格式输出（等同于 -X）",
+          "type": "boolean"
+        },
+        "tags": {
+          "description": "要提取的特定标签",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "exiftool {{#output_json}}-json{{/output_json}} {{#output_xml}}-X{{/output_xml}} {{#output_csv}}-csv{{/output_csv}} {{#tags}}-{tags}{{/tags}} {file_path}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "falco",
+    "description": "运行时安全监控工具\n\nFalco是一个运行时安全监控工具，用于检测容器和主机中的异常行为。\n\n**主要功能：**\n- 运行时监控\n- 异常检测\n- 规则引擎\n- 实时告警\n\n**使用场景：**\n- 运行时安全监控\n- 异常检测\n- 安全事件响应\n- 合规性监控",
+    "schema": {
+      "properties": {
+        "config_file": {
+          "default": "/etc/falco/falco.yaml",
+          "description": "Falco配置文件",
+          "type": "string"
+        },
+        "duration": {
+          "default": 60,
+          "description": "监控持续时间（秒）",
+          "type": "integer"
+        },
+        "json_output": {
+          "default": true,
+          "description": "以JSON格式输出（等同于 -o json_output=true）",
+          "type": "boolean"
+        },
+        "rules_file": {
+          "description": "自定义规则文件",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "falco {{#config_file}}--config {config_file}{{/config_file}} {{#rules_file}}--rules {rules_file}{{/rules_file}} {{#json_output}}-o json_output=true{{/json_output}} {{#duration}}--duration {duration}{{/duration}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "ffuf",
+    "description": "快速Web模糊测试工具，用于目录、参数和内容发现\n\nFFuf是一个快速的Web模糊测试工具，用于目录发现、参数模糊测试和内容发现。\n\n**主要功能：**\n- 快速目录和文件发现\n- 参数模糊测试\n- 虚拟主机发现\n- 自定义过滤器和匹配器\n- 多线程支持\n\n**使用场景：**\n- Web应用安全测试\n- 目录枚举\n- 参数发现\n- 内容发现",
+    "schema": {
+      "properties": {
+        "match_codes": {
+          "default": "200,204,301,302,307,401,403",
+          "description": "匹配的HTTP状态码（逗号分隔）",
+          "type": "string"
+        },
+        "url": {
+          "description": "目标URL（使用FUZZ作为占位符）",
+          "type": "string"
+        },
+        "wordlist": {
+          "default": "/usr/share/wordlists/dirb/common.txt",
+          "description": "字典文件路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "ffuf -u {url} {{#wordlist}}-w {wordlist}{{/wordlist}} {{#match_codes}}-mc {match_codes}{{/match_codes}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "fierce",
+    "description": "DNS侦察工具\n\nFierce是一个DNS侦察工具，用于发现目标域名的子域名。\n\n**主要功能：**\n- 子域名发现\n- DNS暴力破解\n- 区域传输测试\n- 网络映射\n\n**使用场景：**\n- DNS侦察\n- 子域名枚举\n- 网络映射\n- 渗透测试",
+    "schema": {
+      "properties": {
+        "dns_server": {
+          "description": "要使用的DNS服务器",
+          "type": "string"
+        },
+        "domain": {
+          "description": "目标域名",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "fierce -dns {domain} {{#dns_server}}-dnsserver {dns_server}{{/dns_server}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "foremost",
+    "description": "文件恢复工具\n\nForemost是一个基于文件头和尾的文件恢复工具。\n\n**主要功能：**\n- 文件恢复\n- 多种文件类型支持\n- 磁盘镜像分析\n- 数据恢复\n\n**使用场景：**\n- 数据恢复\n- 取证分析\n- 文件提取\n- 磁盘分析",
+    "schema": {
+      "properties": {
+        "file_types": {
+          "description": "要恢复的文件类型（jpg,gif,png等）",
+          "type": "string"
+        },
+        "input_file": {
+          "description": "输入文件或设备",
+          "type": "string"
+        },
+        "output_dir": {
+          "default": "/tmp/foremost_output",
+          "description": "输出目录",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input_file"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "foremost -i {input_file} {{#output_dir}}-o {output_dir}{{/output_dir}} {{#file_types}}-t {file_types}{{/file_types}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "gau",
+    "description": "从多个数据源获取所有URL\n\nGau (Get All URLs) 从多个数据源获取目标域名的所有URL。\n\n**主要功能：**\n- 从Wayback Machine获取URL\n- 从CommonCrawl获取URL\n- 从OTX获取URL\n- 从URLScan获取URL\n\n**使用场景：**\n- URL发现\n- 历史URL收集\n- Bug bounty侦察\n- 安全测试",
+    "schema": {
+      "properties": {
+        "domain": {
+          "description": "目标域名",
+          "type": "string"
+        },
+        "include_subs": {
+          "default": true,
+          "description": "包含子域名",
+          "type": "boolean"
+        },
+        "providers": {
+          "description": "数据源（wayback,commoncrawl,otx,urlscan）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "gau {{#providers}}--providers {providers}{{/providers}} {{#include_subs}}--subs{{/include_subs}} {domain}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "gdb",
+    "description": "GNU调试器，用于二进制分析和调试\n\nGDB是GNU调试器，用于调试和分析二进制程序。\n\n**主要功能：**\n- 程序调试\n- 内存分析\n- 反汇编\n- 断点设置\n\n**使用场景：**\n- 二进制分析\n- 漏洞研究\n- 逆向工程\n- 程序调试",
+    "schema": {
+      "properties": {
+        "binary": {
+          "description": "要分析的二进制文件路径",
+          "type": "string"
+        },
+        "commands": {
+          "description": "要执行的GDB命令（分号分隔）",
+          "type": "string"
+        },
+        "script_file": {
+          "description": "GDB脚本文件路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binary"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "gdb {{#commands}}-ex {commands}{{/commands}} {{#script_file}}-x {script_file}{{/script_file}} {binary}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "ghidra",
+    "description": "高级二进制分析和逆向工程工具\n\nGhidra是NSA开发的免费二进制分析和逆向工程工具。\n\n**主要功能：**\n- 反汇编和反编译\n- 高级分析\n- 脚本支持\n- 协作功能\n\n**使用场景：**\n- 二进制分析\n- 逆向工程\n- 恶意软件分析\n- 漏洞研究",
+    "schema": {
+      "properties": {
+        "binary": {
+          "description": "要分析的二进制文件路径",
+          "type": "string"
+        },
+        "project_dir": {
+          "default": "/tmp/ghidra_projects",
+          "description": "Ghidra项目存放目录",
+          "type": "string"
+        },
+        "project_name": {
+          "default": "cyberstrike_analysis",
+          "description": "Ghidra项目名称",
+          "type": "string"
+        },
+        "script_file": {
+          "description": "可选的Ghidra脚本文件（通过 -postScript 执行）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binary"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "analyzeHeadless -import {binary} {{#script_file}}-postScript {script_file}{{/script_file}} {{#project_dir}}{project_dir}{{/project_dir}} {{#project_name}}{project_name}{{/project_name}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "graphql-scanner",
+    "description": "GraphQL安全扫描和自省工具\n\n高级GraphQL安全扫描和自省工具，用于检测GraphQL API中的安全问题。\n\n**主要功能：**\n- GraphQL自省\n- 查询深度测试\n- 突变操作测试\n- 漏洞评估\n\n**使用场景：**\n- GraphQL安全测试\n- API安全评估\n- 漏洞发现\n- 安全测试",
+    "schema": {
+      "properties": {
+        "endpoint": {
+          "description": "GraphQL端点URL",
+          "type": "string"
+        },
+        "introspection": {
+          "default": true,
+          "description": "测试自省查询",
+          "type": "boolean"
+        },
+        "query_depth": {
+          "default": 10,
+          "description": "要测试的最大查询深度",
+          "type": "integer"
+        },
+        "test_mutations": {
+          "default": true,
+          "description": "测试突变操作",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "endpoint"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "graphqlmap -u {endpoint} {{#introspection}}--introspection{{/introspection}} {{#query_depth}}--depth {query_depth}{{/query_depth}} {{#test_mutations}}--mutations{{/test_mutations}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "hashcat",
+    "description": "高级密码破解工具，支持GPU加速\n\nHashcat是一个高级密码恢复工具，支持多种哈希算法和攻击模式。\n\n**主要功能：**\n- 支持多种哈希算法\n- GPU加速\n- 多种攻击模式（字典、组合、掩码等）\n- 规则引擎\n\n**使用场景：**\n- 密码恢复\n- 哈希破解\n- 安全测试\n- 取证分析",
+    "schema": {
+      "properties": {
+        "attack_mode": {
+          "default": "0",
+          "description": "攻击模式（0=字典, 1=组合, 3=掩码等）",
+          "type": "string"
+        },
+        "hash_file": {
+          "description": "包含哈希的文件",
+          "type": "string"
+        },
+        "hash_type": {
+          "description": "哈希类型编号",
+          "type": "string"
+        },
+        "mask": {
+          "description": "掩码（用于掩码攻击）",
+          "type": "string"
+        },
+        "wordlist": {
+          "default": "/usr/share/wordlists/rockyou.txt",
+          "description": "字典文件",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash_file",
+        "hash_type"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "hashcat -m {hash_type} {{#attack_mode}}-a {attack_mode}{{/attack_mode}} {hash_file} {{#wordlist}}{wordlist}{{/wordlist}} {{#mask}}{mask}{{/mask}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "hashpump",
+    "description": "哈希长度扩展攻击工具\n\nHashPump是一个用于执行哈希长度扩展攻击的工具。\n\n**主要功能：**\n- 哈希长度扩展攻击\n- 多种哈希算法支持\n- 签名生成\n- 数据追加\n\n**使用场景：**\n- 密码学攻击\n- 哈希函数测试\n- CTF挑战\n- 安全研究",
+    "schema": {
+      "properties": {
+        "append_data": {
+          "description": "要追加的数据",
+          "type": "string"
+        },
+        "data": {
+          "description": "原始数据",
+          "type": "string"
+        },
+        "key_length": {
+          "description": "密钥长度",
+          "type": "integer"
+        },
+        "signature": {
+          "description": "原始哈希签名",
+          "type": "string"
+        }
+      },
+      "required": [
+        "signature",
+        "data",
+        "key_length",
+        "append_data"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "hashpump -s {signature} -d {data} -k {key_length} -a {append_data}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "hydra",
+    "description": "密码暴力破解工具，支持多种协议和服务\n\nHydra 是网络登录口令爆破工具，支持 SSH、FTP、HTTP、SMB 等多种协议。\n\n**调用约定（必读）：**\n- 必须提供 **用户名**：`username`（-l）或 `username_file`（-L）至少其一\n- 必须提供 **口令**：`password`（-p）、`password_file`（-P）或 `-C`（经 `additional_args`）至少其一\n- **先用小字典试跑**（几十～几百条），确认目标可达再扩大；禁止默认使用 rockyou 等超大字典\n- 默认已启用：找到即停（-f）、并行 4（-t）、忽略 restore（-I）；长任务请设 `output_file`\n\n**CLI 顺序：** `hydra [选项] \u003ctarget\u003e \u003cservice\u003e`（本工具已按此顺序组参，勿把 target 写在选项前）\n\n**使用场景：** 授权环境下的弱口令检测、密码强度评估\n\n**注意：** 仅用于已授权目标；对无响应目标请减小 `wait_time` 或缩小字典，避免长时间挂起。",
+    "schema": {
+      "properties": {
+        "output_file": {
+          "description": "将结果写入文件（-o），长任务建议指定",
+          "type": "string"
+        },
+        "password": {
+          "description": "单个密码（-p）",
+          "type": "string"
+        },
+        "password_file": {
+          "description": "密码字典文件（-P）；优先使用小字典试跑",
+          "type": "string"
+        },
+        "service": {
+          "description": "服务类型（ssh、ftp、http-get、http-post-form、smb 等，见 hydra -h）",
+          "type": "string"
+        },
+        "stop_on_first": {
+          "default": true,
+          "description": "找到一对有效账密后立即退出（-f，默认 true）",
+          "type": "boolean"
+        },
+        "target": {
+          "description": "目标 IP、主机名或 CIDR（须在选项之后）",
+          "type": "string"
+        },
+        "tasks": {
+          "default": 4,
+          "description": "每目标并行连接数（-t）；SSH 等建议 4，默认 4",
+          "type": "integer"
+        },
+        "username": {
+          "description": "单个用户名（-l）；与 username_file 二选一至少填一个",
+          "type": "string"
+        },
+        "username_file": {
+          "description": "用户名字典文件（-L）",
+          "type": "string"
+        },
+        "wait_between": {
+          "default": 1,
+          "description": "每线程连接间隔秒数（-W），默认 1",
+          "type": "integer"
+        },
+        "wait_time": {
+          "default": 16,
+          "description": "单次连接等待响应秒数（-w），默认 16（低于 Hydra 默认 32，减少挂起感）",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target",
+        "service"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "hydra -I {{#username}}-l {username}{{/username}} {{#username_file}}-L {username_file}{{/username_file}} {{#password}}-p {password}{{/password}} {{#password_file}}-P {password_file}{{/password_file}} {{#stop_on_first}}-f{{/stop_on_first}} {{#tasks}}-t {tasks}{{/tasks}} {{#wait_time}}-w {wait_time}{{/wait_time}} {{#wait_between}}-W {wait_between}{{/wait_between}} {{#output_file}}-o {output_file}{{/output_file}} {target} {service}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "jaeles",
+    "description": "高级漏洞扫描器，支持自定义签名\n\nJaeles是一个高级漏洞扫描器，支持自定义签名进行漏洞检测。\n\n**主要功能：**\n- 自定义签名支持\n- 多种漏洞检测\n- 快速扫描\n- 详细报告\n\n**使用场景：**\n- 漏洞扫描\n- Web应用安全测试\n- 自定义检测规则\n- 安全测试",
+    "schema": {
+      "properties": {
+        "config": {
+          "description": "配置文件",
+          "type": "string"
+        },
+        "signatures": {
+          "description": "自定义签名路径",
+          "type": "string"
+        },
+        "threads": {
+          "default": 20,
+          "description": "线程数",
+          "type": "integer"
+        },
+        "timeout": {
+          "default": 20,
+          "description": "请求超时时间（秒）",
+          "type": "integer"
+        },
+        "url": {
+          "description": "目标URL",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "jaeles scan -u {url} {{#signatures}}-s {signatures}{{/signatures}} {{#config}}-c {config}{{/config}} {{#threads}}-t {threads}{{/threads}} {{#timeout}}--timeout {timeout}{{/timeout}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "john",
+    "description": "John the Ripper密码破解工具\n\nJohn the Ripper是一个快速的密码破解工具，支持多种哈希算法。\n\n**主要功能：**\n- 多种哈希算法支持\n- 字典攻击\n- 暴力破解\n- 规则引擎\n\n**使用场景：**\n- 密码恢复\n- 哈希破解\n- 安全测试\n- 取证分析",
+    "schema": {
+      "properties": {
+        "format_type": {
+          "description": "哈希格式类型",
+          "type": "string"
+        },
+        "hash_file": {
+          "description": "包含哈希的文件",
+          "type": "string"
+        },
+        "wordlist": {
+          "default": "/usr/share/wordlists/rockyou.txt",
+          "description": "字典文件",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash_file"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "john {{#wordlist}}--wordlist {wordlist}{{/wordlist}} {{#format_type}}--format {format_type}{{/format_type}} {hash_file}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "jwt-analyzer",
+    "description": "JWT令牌分析和漏洞测试工具\n\n高级JWT令牌分析和漏洞测试工具，用于检测JWT实现中的安全问题。\n\n**主要功能：**\n- JWT令牌分析\n- 漏洞测试\n- 攻击向量检测\n- 令牌操作\n\n**使用场景：**\n- JWT安全测试\n- 令牌分析\n- 漏洞发现\n- 安全测试",
+    "schema": {
+      "properties": {
+        "jwt_token": {
+          "description": "要分析的JWT令牌",
+          "type": "string"
+        },
+        "target_url": {
+          "description": "用于测试令牌操作的可选目标URL",
+          "type": "string"
+        }
+      },
+      "required": [
+        "jwt_token"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "jwt_tool -t {jwt_token} {{#target_url}}-u {target_url}{{/target_url}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "katana",
+    "description": "下一代Web爬虫和蜘蛛工具\n\nKatana是一个快速、智能的Web爬虫工具，用于发现Web应用中的端点和资源。\n\n**主要功能：**\n- 智能Web爬虫\n- JavaScript渲染支持\n- 表单提取\n- 端点发现\n\n**使用场景：**\n- Web应用侦察\n- 端点发现\n- 内容爬取\n- 安全测试",
+    "schema": {
+      "properties": {
+        "depth": {
+          "default": 3,
+          "description": "爬取深度",
+          "type": "integer"
+        },
+        "form_extraction": {
+          "default": true,
+          "description": "启用表单提取（-fx / -form-extraction）",
+          "type": "boolean"
+        },
+        "js_crawl": {
+          "default": true,
+          "description": "启用JavaScript爬取",
+          "type": "boolean"
+        },
+        "url": {
+          "description": "目标URL",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "katana -u {url} {{#depth}}-d {depth}{{/depth}} {{#js_crawl}}-jc{{/js_crawl}} {{#form_extraction}}-fx{{/form_extraction}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "kube-bench",
+    "description": "CIS Kubernetes基准检查工具\n\nKube-bench是一个CIS Kubernetes基准检查工具，用于检查Kubernetes集群是否符合CIS基准。\n\n**主要功能：**\n- CIS基准检查\n- 多种目标支持（master, node, etcd, policies）\n- 详细报告\n- 配置验证\n\n**使用场景：**\n- Kubernetes合规性检查\n- 安全配置审计\n- CIS基准验证\n- 安全评估",
+    "schema": {
+      "properties": {
+        "config_dir": {
+          "description": "配置目录",
+          "type": "string"
+        },
+        "output_format": {
+          "default": "json",
+          "description": "输出格式（json, yaml）",
+          "type": "string"
+        },
+        "targets": {
+          "description": "要检查的目标（master, node, etcd, policies）",
+          "type": "string"
+        },
+        "version": {
+          "description": "Kubernetes版本",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "kube-bench {{#targets}}--targets {targets}{{/targets}} {{#version}}--version {version}{{/version}} {{#config_dir}}--config-dir {config_dir}{{/config_dir}} {{#output_format}}--output {output_format}{{/output_format}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "kube-hunter",
+    "description": "Kubernetes渗透测试工具\n\nKube-hunter是一个Kubernetes渗透测试工具，用于发现Kubernetes集群中的安全问题。\n\n**主要功能：**\n- Kubernetes安全扫描\n- 漏洞发现\n- 配置问题检测\n- 主动和被动模式\n\n**使用场景：**\n- Kubernetes安全测试\n- 集群安全评估\n- 渗透测试\n- 安全审计",
+    "schema": {
+      "properties": {
+        "active": {
+          "default": false,
+          "description": "启用主动扫描（可能有风险）",
+          "type": "boolean"
+        },
+        "cidr": {
+          "description": "CIDR范围扫描",
+          "type": "string"
+        },
+        "interface": {
+          "description": "网络接口扫描",
+          "type": "string"
+        },
+        "report": {
+          "default": "json",
+          "description": "报告格式（json, yaml）",
+          "type": "string"
+        },
+        "target": {
+          "description": "特定目标扫描",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "kube-hunter {{#target}}--remote {target}{{/target}} {{#cidr}}--cidr {cidr}{{/cidr}} {{#interface}}--interface {interface}{{/interface}} {{#active}}--active{{/active}} {{#report}}--report {report}{{/report}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "linpeas",
+    "description": "Linux 权限提升枚举脚本，自动检测常见提权路径\n\nLinPEAS (Linux Privilege Escalation Awesome Script) 是一个自动化权限提升枚举脚本，用于检测 Linux 系统中的常见提权路径。\n\n**主要功能：**\n- 系统信息收集\n- 权限和组检查\n- 可写文件和目录检测\n- SUID/SGID 文件查找\n- 环境变量检查\n- 定时任务分析\n- 网络配置检查\n- 敏感文件查找\n\n**使用场景：**\n- 渗透测试中的权限提升\n- 安全审计\n- 后渗透测试\n- CTF 竞赛\n\n**注意事项：**\n- 需要目标系统上已下载 linpeas.sh 脚本\n- 执行时间可能较长\n- 输出信息量大，建议保存到文件",
+    "schema": {
+      "properties": {
+        "fast": {
+          "description": "快速模式，跳过耗时检查",
+          "type": "boolean"
+        },
+        "output": {
+          "description": "输出文件路径（可选）",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "linpeas.sh {{#output}}-o {output}{{/output}} {{#fast}}-fast{{/fast}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "masscan",
+    "description": "高速互联网级端口扫描工具\n\nMasscan是一个高速端口扫描工具，可以在几分钟内扫描整个互联网。\n\n**主要功能：**\n- 极高的扫描速度\n- 支持大规模网络扫描\n- Banner抓取\n- 可配置扫描速率\n\n**使用场景：**\n- 大规模网络扫描\n- 互联网级扫描\n- 快速端口发现",
+    "schema": {
+      "properties": {
+        "banners": {
+          "default": false,
+          "description": "启用Banner抓取",
+          "type": "boolean"
+        },
+        "interface": {
+          "description": "网络接口",
+          "type": "string"
+        },
+        "ports": {
+          "default": "1-65535",
+          "description": "端口范围（如：1-65535）",
+          "type": "string"
+        },
+        "rate": {
+          "default": 1000,
+          "description": "每秒数据包数",
+          "type": "integer"
+        },
+        "target": {
+          "description": "目标IP地址或CIDR范围",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "masscan {{#ports}}-p {ports}{{/ports}} {{#rate}}--rate {rate}{{/rate}} {{#interface}}-e {interface}{{/interface}} {{#banners}}--banners{{/banners}} {target}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "msfvenom",
+    "description": "Metasploit载荷生成工具\n\nMSFVenom是Metasploit框架的载荷生成工具，用于创建各种类型的攻击载荷。\n\n**主要功能：**\n- 多种载荷类型\n- 编码器支持\n- 多种输出格式\n- 平台支持\n\n**使用场景：**\n- 渗透测试\n- 载荷生成\n- 漏洞利用\n- 安全测试",
+    "schema": {
+      "properties": {
+        "encoder": {
+          "description": "编码器（如：x86/shikata_ga_nai）",
+          "type": "string"
+        },
+        "format_type": {
+          "description": "输出格式（exe, elf, raw等）",
+          "type": "string"
+        },
+        "iterations": {
+          "description": "编码迭代次数",
+          "type": "string"
+        },
+        "output_file": {
+          "description": "输出文件路径",
+          "type": "string"
+        },
+        "payload": {
+          "description": "要生成的载荷（如：windows/meterpreter/reverse_tcp）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "msfvenom -p {payload} {{#format_type}}-f {format_type}{{/format_type}} {{#output_file}}-o {output_file}{{/output_file}} {{#encoder}}-e {encoder}{{/encoder}} {{#iterations}}-i {iterations}{{/iterations}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "nbtscan",
+    "description": "NetBIOS名称扫描工具\n\nNbtscan是一个NetBIOS名称扫描工具，用于发现网络中的Windows系统。\n\n**主要功能：**\n- NetBIOS名称扫描\n- Windows系统发现\n- 网络映射\n- 快速扫描\n\n**使用场景：**\n- Windows网络发现\n- NetBIOS枚举\n- 网络映射\n- 渗透测试",
+    "schema": {
+      "properties": {
+        "target": {
+          "description": "目标IP地址或范围",
+          "type": "string"
+        },
+        "timeout": {
+          "default": 2,
+          "description": "超时时间（秒）",
+          "type": "integer"
+        },
+        "verbose": {
+          "default": false,
+          "description": "详细输出",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "nbtscan {{#verbose}}-v{{/verbose}} {{#timeout}}-t {timeout}{{/timeout}} {target}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "netexec",
+    "description": "网络枚举和利用框架（原CrackMapExec）\n\nNetExec（原CrackMapExec）是一个网络枚举和利用框架，支持多种协议。\n\n**主要功能：**\n- 多协议支持（SMB, SSH, WinRM等）\n- 凭证验证\n- 横向移动\n- 模块化架构\n\n**使用场景：**\n- 网络渗透测试\n- 域环境测试\n- 横向移动测试\n- 凭证验证",
+    "schema": {
+      "properties": {
+        "hash_value": {
+          "description": "NTLM哈希（用于Pass-the-Hash）",
+          "type": "string"
+        },
+        "module": {
+          "description": "要执行的模块",
+          "type": "string"
+        },
+        "password": {
+          "description": "密码",
+          "type": "string"
+        },
+        "protocol": {
+          "default": "smb",
+          "description": "协议类型（smb, ssh, winrm等）",
+          "type": "string"
+        },
+        "target": {
+          "description": "目标IP或网络",
+          "type": "string"
+        },
+        "username": {
+          "description": "用户名",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "netexec {{#username}}-u {username}{{/username}} {{#password}}-p {password}{{/password}} {{#hash_value}}-H {hash_value}{{/hash_value}} {{#module}}-M {module}{{/module}} {{#protocol}}{protocol}{{/protocol}} {target}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "nikto",
+    "description": "Web服务器扫描工具，用于检测Web服务器和应用程序中的已知漏洞和配置错误\n\nWeb服务器扫描工具，用于检测Web服务器和应用程序中的已知漏洞、配置错误和潜在安全问题。\n\n**主要功能：**\n- 检测Web服务器版本和配置问题\n- 识别已知的Web漏洞和CVE\n- 检测危险文件和目录\n- 检查服务器配置错误\n- 识别过时的软件版本\n- 检测默认文件和脚本\n\n**使用场景：**\n- Web应用安全评估\n- 服务器配置审计\n- 漏洞扫描和发现\n- 渗透测试前期信息收集\n\n**注意事项：**\n- 扫描可能产生大量日志，注意日志管理\n- 某些扫描可能触发WAF或IDS告警\n- 建议在授权范围内使用\n- 扫描结果需要人工验证",
+    "schema": {
+      "properties": {
+        "target": {
+          "description": "目标URL或IP地址。可以是完整的URL或IP地址。\n\n**格式要求：**\n- 可以包含协议（http:// 或 https://）\n- 可以只提供IP地址或域名\n- 如果只提供IP，默认使用http协议\n\n**示例值：**\n- 完整URL: \"http://example.com\"\n- HTTPS: \"https://example.com\"\n- IP地址: \"192.168.1.1\"\n- 带端口: \"http://example.com:8080\"\n- 带路径: \"http://example.com/admin\"\n\n**注意事项：**\n- 如果只提供IP，工具会使用http协议\n- 建议提供完整URL以确保正确扫描\n- 必需参数，不能为空",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "nikto -h {target}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "nmap",
+    "description": "网络扫描：端口/服务/脚本；可选时序、自定义 NSE、OS 检测（需 root）\n\n网络映射与端口扫描。\n\n**默认行为（只传 target/ports 即可）：**\n- `-sT` TCP 连接扫描（无需 root）\n- `-sV` 版本检测\n- `-sC` 默认 NSE 脚本\n\n**可选增强：**\n- `timing`：`-T0`～`-T5` 时序\n- `nse_scripts`：`--script` 自定义脚本（如 `vuln`、`http-*`）\n- `os_detection`：`-O` **必须 root**，否则 nmap 会 QUITTING\n- `aggressive`：`-A` **必须 root**（含 OS 检测）\n- `scan_type`：若传入则**整段替换**上述默认 `-sT -sV -sC`，需自行写上需要的选项（如 `-sT -sV`）\n\n**注意事项：**\n- `-sS` SYN 扫描需要 root；无 root 请用默认或 `-sT`\n- 扫描全端口 `1-65535` 非常慢，建议先常用端口\n- 请确保有权限扫描目标",
+    "schema": {
+      "properties": {
+        "aggressive": {
+          "default": false,
+          "description": "启用 `-A` 激进扫描（含 OS 检测）。**必须 root**；无 root 请保持 false。",
+          "type": "boolean"
+        },
+        "nse_scripts": {
+          "description": "NSE 脚本，传给 `--script`。示例：`vuln`、`http-title,http-headers`",
+          "type": "string"
+        },
+        "os_detection": {
+          "default": false,
+          "description": "启用 `-O` OS 检测。**必须 root**；无 root 请保持 false。",
+          "type": "boolean"
+        },
+        "ports": {
+          "description": "端口范围。示例：`80`、`1-1000`、`80,443,8080`、`1-65535`（全端口很慢）",
+          "type": "string"
+        },
+        "target": {
+          "description": "目标 IP、主机名、CIDR 或域名；URL 会自动提取主机部分。\n\n**示例：** `192.168.1.1`、`10.0.0.0/24`、`example.com`",
+          "type": "string"
+        },
+        "timing": {
+          "description": "时序模板 T0–T5，数字越大越快。示例：`4` 生成 `-T4`",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "nmap -sT -sV -sC {{#ports}}-p {ports}{{/ports}} {{#timing}}-T{timing}{{/timing}} {{#nse_scripts}}--script {nse_scripts}{{/nse_scripts}} {{#os_detection}}-O{{/os_detection}} {{#aggressive}}-A{{/aggressive}} {target}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "nuclei",
+    "description": "快速漏洞扫描器，使用YAML模板进行漏洞检测\n\nNuclei是一个基于模板的快速漏洞扫描器，使用社区维护的YAML模板进行漏洞检测。\n\n**主要功能：**\n- 快速漏洞扫描\n- 基于模板的检测\n- 支持多种协议（HTTP, TCP, DNS等）\n- 实时结果输出\n- 支持自定义模板\n\n**使用场景：**\n- 漏洞扫描和发现\n- 安全评估\n- 渗透测试\n- 漏洞验证",
+    "schema": {
+      "properties": {
+        "severity": {
+          "description": "严重程度过滤（critical,high,medium,low,info）",
+          "type": "string"
+        },
+        "tags": {
+          "description": "标签过滤（如cve,rce,lfi）",
+          "type": "string"
+        },
+        "target": {
+          "description": "目标URL或IP",
+          "type": "string"
+        },
+        "template": {
+          "description": "自定义模板路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "nuclei -u {target} {{#severity}}-s {severity}{{/severity}} {{#tags}}-tags {tags}{{/tags}} {{#template}}-t {template}{{/template}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "objdump",
+    "description": "二进制文件反汇编工具\n\nObjdump是GNU binutils的一部分，用于反汇编二进制文件。\n\n**主要功能：**\n- 反汇编\n- 符号表显示\n- 节信息显示\n- 多种架构支持\n\n**使用场景：**\n- 二进制分析\n- 逆向工程\n- 程序理解\n- 调试辅助",
+    "schema": {
+      "properties": {
+        "binary": {
+          "description": "要分析的二进制文件路径",
+          "type": "string"
+        },
+        "disassemble": {
+          "default": true,
+          "description": "反汇编二进制文件",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "binary"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "objdump {{#disassemble}}-d{{/disassemble}} {binary}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "one-gadget",
+    "description": "在libc中查找one-shot RCE gadget的工具\n\nOne-gadget是一个用于在libc中查找one-shot RCE gadget的工具。\n\n**主要功能：**\n- One-shot gadget搜索\n- 约束级别检查\n- 多种libc支持\n\n**使用场景：**\n- CTF挑战\n- 漏洞利用开发\n- ROP链简化\n- 安全研究",
+    "schema": {
+      "properties": {
+        "level": {
+          "default": 1,
+          "description": "约束级别（0, 1, 2）",
+          "type": "integer"
+        },
+        "libc_path": {
+          "description": "libc二进制文件路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "libc_path"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "one_gadget {{#level}}-l {level}{{/level}} {libc_path}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "paramspider",
+    "description": "从Web档案中挖掘参数\n\nParamSpider从Web档案中挖掘参数，用于发现隐藏的参数。\n\n**主要功能：**\n- 参数挖掘\n- Web档案查询\n- 多级深度支持\n- 扩展名过滤\n\n**使用场景：**\n- 参数发现\n- Bug bounty侦察\n- Web应用安全测试\n- 安全测试",
+    "schema": {
+      "properties": {
+        "domain": {
+          "description": "目标域名",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "要排除的文件扩展名",
+          "type": "string"
+        },
+        "level": {
+          "default": 2,
+          "description": "挖掘深度级别",
+          "type": "integer"
+        },
+        "output": {
+          "description": "输出文件路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "paramspider -d {domain} {{#level}}-l {level}{{/level}} {{#exclude}}-e {exclude}{{/exclude}} {{#output}}-o {output}{{/output}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "prowler",
+    "description": "云安全评估工具（AWS, Azure, GCP）\n\nProwler是一个全面的云安全评估工具，支持AWS、Azure和GCP。\n\n**主要功能：**\n- 云安全评估\n- 合规性检查\n- 安全最佳实践检查\n- 多种输出格式\n\n**使用场景：**\n- 云安全审计\n- 合规性检查\n- 安全评估\n- 云配置审计",
+    "schema": {
+      "properties": {
+        "checks": {
+          "description": "要运行的特定检查",
+          "type": "string"
+        },
+        "output_format": {
+          "default": "json",
+          "description": "输出格式（json, csv, html）",
+          "type": "string"
+        },
+        "profile": {
+          "default": "default",
+          "description": "AWS配置文件",
+          "type": "string"
+        },
+        "provider": {
+          "default": "aws",
+          "description": "云提供商（aws, azure, gcp）",
+          "type": "string"
+        },
+        "region": {
+          "description": "要扫描的特定区域",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "prowler {{#profile}}-p {profile}{{/profile}} {{#region}}-r {region}{{/region}} {{#checks}}-c {checks}{{/checks}} {{#output_format}}-M {output_format}{{/output_format}} {{#provider}}{provider}{{/provider}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "pwninit",
+    "description": "CTF二进制漏洞利用设置工具\n\nPwninit是一个用于CTF二进制漏洞利用设置的工具，自动配置libc和loader。\n\n**主要功能：**\n- 自动libc识别\n- Loader配置\n- 模板生成\n- 环境设置\n\n**使用场景：**\n- CTF挑战\n- 漏洞利用开发\n- 环境配置\n- 安全研究",
+    "schema": {
+      "properties": {
+        "binary": {
+          "description": "二进制文件路径",
+          "type": "string"
+        },
+        "ld": {
+          "description": "Loader文件路径",
+          "type": "string"
+        },
+        "libc": {
+          "description": "libc文件路径",
+          "type": "string"
+        },
+        "template_type": {
+          "default": "python",
+          "description": "模板类型（python, c）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binary"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "pwninit {{#libc}}--libc {libc}{{/libc}} {{#ld}}--ld {ld}{{/ld}} {{#template_type}}--template {template_type}{{/template_type}} {binary}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "radare2",
+    "description": "二进制分析和逆向工程框架，支持反汇编、调试和脚本分析\n\nRadare2是一个完整的二进制分析和逆向工程框架，支持多种架构和文件格式。\n\n**主要功能：**\n- 反汇编和反编译：支持多种架构（x86, ARM, MIPS等）\n- 调试支持：本地和远程调试\n- 脚本支持：支持r2pipe脚本和r2命令脚本\n- 多种文件格式：ELF, PE, Mach-O, 固件等\n- 交互式分析：命令行界面和可视化模式\n- 自动化分析：批量分析和脚本化分析\n\n**使用场景：**\n- 二进制文件分析\n- 逆向工程和漏洞研究\n- 恶意软件分析\n- CTF竞赛中的逆向题目\n- 固件分析\n- 漏洞利用开发\n\n**注意事项：**\n- 可以使用 -c 参数执行命令后退出（非交互模式）\n- 可以使用 -i 参数执行脚本文件\n- 可以使用 -q 参数静默模式（不显示启动信息）\n- 可以使用 -A 参数自动分析二进制文件\n- 可以使用 -d 参数附加到进程进行调试",
+    "schema": {
+      "properties": {
+        "arch": {
+          "description": "指定目标架构。\n\n**常用架构：**\n- \"x86\": 32位x86\n- \"x86_64\": 64位x86\n- \"arm\": ARM架构\n- \"arm64\": ARM64架构\n- \"mips\": MIPS架构\n- \"ppc\": PowerPC架构\n\n**示例值：**\n- \"x86\"\n- \"x86_64\"\n- \"arm\"\n- \"arm64\"\n\n**注意事项：**\n- 如果不指定，radare2会尝试自动检测\n- 某些架构可能需要额外的配置",
+          "type": "string"
+        },
+        "auto_analyze": {
+          "default": false,
+          "description": "自动分析二进制文件。相当于执行 \"aaa\" 命令。\n\n**使用场景：**\n- 快速分析二进制文件\n- 批量分析\n\n**注意事项：**\n- 启用后会自动分析所有函数\n- 可能需要较长时间",
+          "type": "boolean"
+        },
+        "base_address": {
+          "description": "设置基址（base address）。用于加载地址。\n\n**格式：**\n- 十六进制地址: \"0x400000\"\n\n**示例值：**\n- \"0x400000\"\n- \"0x1000000\"\n\n**注意事项：**\n- 用于指定二进制文件的加载地址\n- 通常用于分析固件或内存转储",
+          "type": "string"
+        },
+        "bits": {
+          "description": "指定目标位数（16, 32, 64）。\n\n**示例值：**\n- 16 (16位)\n- 32 (32位)\n- 64 (64位)\n\n**注意事项：**\n- 通常与 -a 参数配合使用\n- 如果不指定，radare2会尝试自动检测",
+          "type": "integer"
+        },
+        "commands": {
+          "description": "要执行的Radare2命令。可以是单个命令或多个命令（用分号分隔）。\n\n**格式：**\n- 单个命令: \"aaa\" (自动分析)\n- 多个命令: \"aaa; pdf @main; VV\" (分析、反汇编main函数、可视化)\n\n**常用命令：**\n- \"aaa\": 自动分析所有函数\n- \"afl\": 列出所有函数\n- \"pdf @main\": 反汇编main函数\n- \"px 64\": 以十六进制显示64字节\n- \"VV\": 进入可视化模式\n- \"i\": 显示文件信息\n- \"iz\": 显示字符串\n\n**示例值：**\n- \"aaa\" (自动分析)\n- \"aaa; pdf @main\" (分析并反汇编main函数)\n- \"i; iz\" (显示信息和字符串)\n\n**注意事项：**\n- 多个命令用分号(;)分隔\n- 执行完命令后程序会退出（非交互模式）",
+          "type": "string"
+        },
+        "debug": {
+          "default": false,
+          "description": "调试模式。可以附加到进程或调试文件。\n\n**使用场景：**\n- 附加到运行中的进程\n- 调试二进制文件\n\n**注意事项：**\n- 需要适当的权限\n- 如果target是进程ID，必须启用此选项",
+          "type": "boolean"
+        },
+        "eval": {
+          "description": "设置配置变量。格式为 key=value。\n\n**格式：**\n- \"key=value\"\n- 多个变量用空格分隔: \"asm.arch=x86 asm.bits=32\"\n\n**示例值：**\n- \"asm.arch=x86\"\n- \"asm.bits=32\"\n- \"scr.color=false\"\n\n**注意事项：**\n- 用于设置radare2的配置变量\n- 多个变量用空格分隔",
+          "type": "string"
+        },
+        "project": {
+          "description": "加载或保存项目文件。\n\n**格式：**\n- 项目文件路径: \"/path/to/project.r2\"\n\n**示例值：**\n- \"./project.r2\"\n- \"/tmp/analysis.r2\"\n\n**注意事项：**\n- 项目文件保存分析状态和配置\n- 可以用于恢复之前的分析",
+          "type": "string"
+        },
+        "quiet": {
+          "default": false,
+          "description": "静默模式。不显示启动信息和提示符。\n\n**使用场景：**\n- 脚本化使用\n- 批量分析\n- 自动化工具调用\n\n**注意事项：**\n- 适合非交互式使用\n- 减少输出噪音",
+          "type": "boolean"
+        },
+        "script_file": {
+          "description": "要执行的脚本文件路径。脚本文件包含Radare2命令，每行一个命令。\n\n**格式：**\n- 脚本文件路径: \"/path/to/script.r2\"\n\n**示例值：**\n- \"/tmp/analyze.r2\"\n- \"./scripts/auto_analyze.r2\"\n\n**注意事项：**\n- 脚本文件中的命令会按顺序执行\n- 脚本执行完后程序会退出",
+          "type": "string"
+        },
+        "seek": {
+          "description": "设置起始地址。可以是十六进制地址或表达式。\n\n**格式：**\n- 十六进制: \"0x400000\"\n- 表达式: \"main+0x10\"\n\n**示例值：**\n- \"0x400000\"\n- \"main\"\n- \"0x1000\"\n\n**注意事项：**\n- 地址可以是十六进制或符号名\n- 用于从特定位置开始分析",
+          "type": "string"
+        },
+        "target": {
+          "description": "目标文件、进程ID或特殊值。\n\n**格式：**\n- 文件路径: \"/path/to/binary\"\n- 进程ID: \"1234\" (需要配合 -d 参数)\n- 特殊值: \"-\" (从stdin读取), \"--\" (交互模式), \"=\" (从环境变量读取)\n\n**示例值：**\n- 二进制文件: \"/tmp/vulnerable\"\n- 进程调试: \"1234\" (配合 -d)\n- 从stdin: \"-\"\n\n**注意事项：**\n- 必需参数，不能为空\n- 如果指定进程ID，需要配合 -d 参数使用\n- 注意：radare2 要求文件路径必须是最后一个参数，因此 target 使用 position 1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "r2 {{#commands}}-c {commands}{{/commands}} {{#script_file}}-i {script_file}{{/script_file}} {{#arch}}-a {arch}{{/arch}} {{#bits}}-b {bits}{{/bits}} {{#auto_analyze}}-A{{/auto_analyze}} {{#debug}}-d{{/debug}} {{#quiet}}-q{{/quiet}} {{#seek}}-s {seek}{{/seek}} {{#base_address}}-B {base_address}{{/base_address}} {{#eval}}-e {eval}{{/eval}} {{#project}}-p {project}{{/project}} {target}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "ropgadget",
+    "description": "ROP gadget搜索工具\n\nROPgadget是一个用于在二进制文件中搜索ROP gadget的工具。\n\n**主要功能：**\n- ROP gadget搜索\n- 多种架构支持\n- Gadget分类\n- 利用链生成\n\n**使用场景：**\n- 二进制分析\n- 漏洞利用开发\n- ROP链构建\n- 安全研究",
+    "schema": {
+      "properties": {
+        "binary": {
+          "description": "要分析的二进制文件路径",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binary"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "ROPgadget {binary}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "ropper",
+    "description": "高级ROP/JOP gadget搜索工具\n\nRopper是一个高级ROP/JOP gadget搜索工具，用于漏洞利用开发。\n\n**主要功能：**\n- ROP/JOP gadget搜索\n- Gadget质量评估\n- 多种架构支持\n- 利用链生成\n\n**使用场景：**\n- 漏洞利用开发\n- ROP链构建\n- 二进制分析\n- 安全研究",
+    "schema": {
+      "properties": {
+        "arch": {
+          "description": "目标架构（x86, x86_64, arm等）",
+          "type": "string"
+        },
+        "binary": {
+          "description": "要分析的二进制文件路径",
+          "type": "string"
+        },
+        "gadget_type": {
+          "default": "rop",
+          "description": "Gadget类型（rop, jop, sys, all）",
+          "type": "string"
+        },
+        "quality": {
+          "default": 1,
+          "description": "Gadget质量级别（1-5）",
+          "type": "integer"
+        },
+        "search_string": {
+          "description": "要搜索的特定gadget模式",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binary"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "ropper --file {binary} {{#gadget_type}}--type {gadget_type}{{/gadget_type}} {{#quality}}--quality {quality}{{/quality}} {{#arch}}--arch {arch}{{/arch}} {{#search_string}}--search {search_string}{{/search_string}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "rustscan",
+    "description": "超快速端口扫描（Rust）；可选 greppable、批量与脚本级别\n\nRustScan 2.x：快速端口发现，可选再调 Nmap 脚本。\n\n**与 `rustscan -h` 对应关系：**\n- `-a` / `--addresses`：扫描目标列表（逗号分隔或文件）\n- `-p`：逗号分隔端口；`-r`：端口范围 `start-end`（二选一或与 `-p` 配合以 CLI 为准）\n- `-g` / `--greppable`：只输出端口，便于 grep/管道\n- `--scripts`：**官方默认是 default**（会跑 Nmap）；设为 **none** 可只做端口发现、更快\n- `-b` batch-size、`-t` timeout、`--scan-order` 等可微调速度与顺序\n\n**使用建议：**\n- 快速扫端口、不要 Nmap：`scripts` 用 `none`，必要时加 `-g`\n- 需要服务识别/脚本：用 `default` 或 `custom`，并确保本机有 nmap",
+    "schema": {
+      "properties": {
+        "batch_size": {
+          "description": "每批并发端口数；越大越快，受 OS 打开文件数限制。官方默认 4500",
+          "type": "integer"
+        },
+        "exclude_addresses": {
+          "description": "排除地址，逗号分隔 CIDR/IP/主机",
+          "type": "string"
+        },
+        "exclude_ports": {
+          "description": "排除端口，逗号分隔。示例：`80,443`",
+          "type": "string"
+        },
+        "greppable": {
+          "default": false,
+          "description": "Greppable 模式：只输出端口，适合脚本解析或写入文件",
+          "type": "boolean"
+        },
+        "ports": {
+          "description": "要扫描的端口，**仅**逗号分隔列表，对应 `-p`。\n示例：`22,80,443`、`80,443,8080`。\n若要范围如 `1-1000`，请用参数 **range**（`-r`），不要写在本参数。",
+          "type": "string"
+        },
+        "range": {
+          "description": "端口范围，格式 start-end，对应 `-r`。\n示例：`1-1000`、`1-65535`（全端口很慢）。\n离散端口如 `22,80,443` 请用 **ports**（`-p`），不要写在本参数。",
+          "type": "string"
+        },
+        "scan_order": {
+          "description": "扫描顺序：serial 升序；random 随机",
+          "enum": [
+            "serial",
+            "random"
+          ],
+          "type": "string"
+        },
+        "scripts": {
+          "default": "none",
+          "description": "脚本级别；**必须**传字符串，勿传 true/false。\n- **none**：不跑 Nmap，仅端口发现（最快）\n- **default**：与 rustscan 官方默认一致，会调 Nmap\n- **custom**：自定义脚本，常需配合 additional_args",
+          "enum": [
+            "none",
+            "default",
+            "custom"
+          ],
+          "type": "string"
+        },
+        "target": {
+          "description": "对应 `-a`：逗号分隔的 CIDR、IP 或主机名；也可为含换行/列表的文件路径。\n示例：`192.168.1.1`、`10.0.0.1,10.0.0.2`、`192.168.0.0/24`",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "description": "单端口超时（毫秒）。官方默认 1500",
+          "type": "integer"
+        },
+        "top_ports": {
+          "default": false,
+          "description": "使用内置 top 1000 端口（等价于传 `--top`）",
+          "type": "boolean"
+        },
+        "tries": {
+          "description": "判定关闭前的重试次数；0 会被纠正为 1",
+          "type": "integer"
+        },
+        "ulimit": {
+          "default": 5000,
+          "description": "提升扫描用的 ulimit；依系统 fd 限制调整",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "rustscan -a {target} {{#ports}}-p {ports}{{/ports}} {{#range}}-r {range}{{/range}} {{#ulimit}}-u {ulimit}{{/ulimit}} {{#scripts}}--scripts {scripts}{{/scripts}} {{#greppable}}-g{{/greppable}} {{#batch_size}}-b {batch_size}{{/batch_size}} {{#timeout_ms}}-t {timeout_ms}{{/timeout_ms}} {{#scan_order}}--scan-order {scan_order}{{/scan_order}} {{#top_ports}}--top{{/top_ports}} {{#exclude_ports}}-e {exclude_ports}{{/exclude_ports}} {{#exclude_addresses}}-x {exclude_addresses}{{/exclude_addresses}} {{#tries}}--tries {tries}{{/tries}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "scout-suite",
+    "description": "多云安全评估工具\n\nScout Suite是一个多云安全评估工具，支持AWS、Azure、GCP、Aliyun和OCI。\n\n**主要功能：**\n- 多云安全评估\n- 配置审计\n- 安全最佳实践检查\n- 详细报告生成\n\n**使用场景：**\n- 云安全审计\n- 合规性检查\n- 安全评估\n- 云配置审计",
+    "schema": {
+      "properties": {
+        "profile": {
+          "default": "default",
+          "description": "AWS配置文件",
+          "type": "string"
+        },
+        "provider": {
+          "default": "aws",
+          "description": "云提供商（aws, azure, gcp, aliyun, oci）",
+          "type": "string"
+        },
+        "report_dir": {
+          "default": "/tmp/scout-suite",
+          "description": "报告保存目录",
+          "type": "string"
+        },
+        "services": {
+          "description": "要评估的特定服务",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "scout {{#provider}}--provider {provider}{{/provider}} {{#profile}}--profile {profile}{{/profile}} {{#report_dir}}--report-dir {report_dir}{{/report_dir}} {{#services}}--services {services}{{/services}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "smbmap",
+    "description": "SMB共享枚举和访问工具\n\nSMBMap是一个用于枚举SMB共享并提供文件访问功能的工具。\n\n**主要功能：**\n- SMB共享枚举\n- 文件列表和下载\n- 权限检查\n- 支持多种认证方式\n\n**使用场景：**\n- SMB安全测试\n- 文件共享审计\n- 渗透测试\n- 网络侦察",
+    "schema": {
+      "properties": {
+        "domain": {
+          "description": "域名",
+          "type": "string"
+        },
+        "password": {
+          "description": "密码",
+          "type": "string"
+        },
+        "target": {
+          "description": "目标IP地址",
+          "type": "string"
+        },
+        "username": {
+          "description": "用户名",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "smbmap -H {target} {{#username}}-u {username}{{/username}} {{#password}}-p {password}{{/password}} {{#domain}}-d {domain}{{/domain}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "sqlmap",
+    "description": "自动化SQL注入检测和利用工具，用于发现和利用SQL注入漏洞\n\n自动化SQL注入检测和利用工具，用于发现和利用SQL注入漏洞。\n\n**主要功能：**\n- 自动检测SQL注入漏洞\n- 支持多种数据库类型（MySQL, PostgreSQL, Oracle, MSSQL等）\n- 自动提取数据库信息（表、列、数据）\n- 支持多种注入技术（布尔盲注、时间盲注、联合查询等）\n- 支持文件上传/下载、命令执行等高级功能\n\n**使用场景：**\n- Web应用安全测试\n- SQL注入漏洞检测\n- 数据库信息收集\n- 渗透测试和漏洞验证\n\n**注意事项：**\n- 仅用于授权的安全测试\n- 某些操作可能对目标系统造成影响\n- 建议在测试环境中先验证\n- 使用 --batch 参数避免交互式提示",
+    "schema": {
+      "properties": {
+        "batch": {
+          "default": true,
+          "description": "非交互模式，自动选择默认选项，不需要用户输入。\n\n**使用场景：**\n- 自动化测试脚本\n- 批量扫描\n- 避免交互式提示\n\n**注意事项：**\n- 建议始终设置为true，避免工具等待用户输入\n- 默认值为true",
+          "type": "boolean"
+        },
+        "cookie": {
+          "description": "Cookie字符串，用于Cookie注入检测。\n\n**格式：**\n- 标准Cookie格式，例如: \"sessionid=abc123; user=admin\"\n\n**注意事项：**\n- 如果存在Cookie注入，需要提供此参数",
+          "type": "string"
+        },
+        "data": {
+          "description": "POST数据字符串，用于POST请求的SQL注入检测。\n\n**格式：**\n- 表单数据格式，例如: \"username=admin\u0026password=123\"\n- JSON格式，例如: '{\"username\":\"admin\",\"password\":\"123\"}'\n\n**注意事项：**\n- 如果URL使用POST方法，需要提供此参数\n- 参数值中的注入点用 * 标记",
+          "type": "string"
+        },
+        "level": {
+          "default": 3,
+          "description": "测试级别，范围1-5，级别越高测试越全面但耗时越长。\n\n**级别说明：**\n- Level 1: 基本测试，快速但可能遗漏漏洞\n- Level 2: 默认级别，平衡速度和覆盖率\n- Level 3: 扩展测试，更全面的检测\n- Level 4: 深度测试，包含更多payload\n- Level 5: 最全面测试，包含所有已知技术\n\n**建议：**\n- 快速扫描使用1-2\n- 常规测试使用3（默认）\n- 深度测试使用4-5\n\n**注意事项：**\n- 级别越高，请求数量越多，可能被WAF拦截\n- 默认值为3",
+          "type": "integer"
+        },
+        "url": {
+          "description": "目标URL，包含可能存在SQL注入的参数。\n\n**格式要求：**\n- 完整的URL，包含协议（http:// 或 https://）\n- 必须包含查询参数，参数值用 * 标记注入点\n- 或者直接提供完整的URL，sqlmap会自动检测参数\n\n**示例值：**\n- 标记注入点: \"http://example.com/page?id=1*\"\n- 完整URL: \"http://example.com/page?id=1\"\n- POST数据: \"http://example.com/login\" (需要配合data参数)\n- Cookie注入: \"http://example.com/page\" (需要配合cookie参数)\n\n**注意事项：**\n- URL必须可访问\n- 确保URL格式正确，包含协议前缀\n- 如果使用POST请求，需要配合data参数\n- 必需参数，不能为空",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "sqlmap -u {url} {{#batch}}--batch{{/batch}} {{#level}}--level={level}{{/level}} {{#data}}--data {data}{{/data}} {{#cookie}}--cookie {cookie}{{/cookie}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "steghide",
+    "description": "隐写术分析工具\n\nSteghide是一个隐写术工具，用于在图像和音频文件中隐藏数据。\n\n**主要功能：**\n- 数据隐藏\n- 数据提取\n- 信息查看\n- 密码保护\n\n**使用场景：**\n- 隐写术分析\n- 数据隐藏检测\n- 取证分析\n- CTF挑战",
+    "schema": {
+      "properties": {
+        "action": {
+          "description": "操作类型（extract, embed, info）",
+          "type": "string"
+        },
+        "cover_file": {
+          "description": "载体文件路径（embed/info操作使用 -cf）",
+          "type": "string"
+        },
+        "embed_file": {
+          "description": "要嵌入的文件（embed操作时）",
+          "type": "string"
+        },
+        "passphrase": {
+          "description": "密码",
+          "type": "string"
+        },
+        "stego_file": {
+          "description": "隐写文件路径（embed时输出，extract时输入）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "steghide {{#cover_file}}-cf {cover_file}{{/cover_file}} {{#embed_file}}-ef {embed_file}{{/embed_file}} {{#passphrase}}-p {passphrase}{{/passphrase}} {{#stego_file}}-sf {stego_file}{{/stego_file}} {action}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "strings",
+    "description": "从二进制文件中提取字符串\n\nStrings工具用于从二进制文件中提取可打印字符串。\n\n**主要功能：**\n- 字符串提取\n- 可配置最小长度\n- 支持多种文件格式\n\n**使用场景：**\n- 二进制分析\n- 恶意软件分析\n- 取证分析\n- 逆向工程",
+    "schema": {
+      "properties": {
+        "file_path": {
+          "description": "要分析的文件路径",
+          "type": "string"
+        },
+        "min_len": {
+          "default": 4,
+          "description": "最小字符串长度",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "strings {{#min_len}}-n {min_len}{{/min_len}} {file_path}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "subfinder",
+    "description": "被动子域名发现工具，使用多个数据源\n\nSubfinder是一个被动子域名发现工具，通过查询多个数据源来发现子域名。\n\n**主要功能：**\n- 被动子域名发现\n- 多个数据源集成\n- 快速扫描\n- 支持API密钥配置\n\n**使用场景：**\n- 子域名枚举\n- 资产发现\n- Bug bounty侦察\n- 渗透测试信息收集",
+    "schema": {
+      "properties": {
+        "all_sources": {
+          "default": false,
+          "description": "使用所有数据源",
+          "type": "boolean"
+        },
+        "domain": {
+          "description": "目标域名",
+          "type": "string"
+        },
+        "silent": {
+          "default": true,
+          "description": "静默模式",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "subfinder -d {domain} {{#silent}}-silent{{/silent}} {{#all_sources}}-all{{/all_sources}}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "terrascan",
+    "description": "基础设施即代码安全扫描工具\n\nTerrascan是一个基础设施即代码安全扫描工具，用于检测IaC配置中的安全问题。\n\n**主要功能：**\n- IaC安全扫描\n- 多种框架支持\n- 策略检查\n- 合规性验证\n\n**使用场景：**\n- IaC安全扫描\n- 云配置审计\n- 安全策略检查\n- 合规性检查",
+    "schema": {
+      "properties": {
+        "iac_dir": {
+          "default": ".",
+          "description": "IaC目录",
+          "type": "string"
+        },
+        "output_format": {
+          "default": "json",
+          "description": "输出格式（json, yaml, xml）",
+          "type": "string"
+        },
+        "policy_type": {
+          "description": "要使用的策略类型",
+          "type": "string"
+        },
+        "severity": {
+          "description": "严重程度过滤（high, medium, low）",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "exec": {
+      "command": "terrascan {{#iac_dir}}-d {iac_dir}{{/iac_dir}} {{#policy_type}}--policy-type {policy_type}{{/policy_type}} {{#output_format}}--output {output_format}{{/output_format}} {{#severity}}--severity {severity}{{/severity}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "trivy",
+    "description": "容器和文件系统漏洞扫描器\n\nTrivy是一个简单而全面的容器和文件系统漏洞扫描器。\n\n**主要功能：**\n- 容器镜像扫描\n- 文件系统扫描\n- 代码仓库扫描\n- 配置文件扫描\n\n**使用场景：**\n- 容器安全扫描\n- CI/CD集成\n- 漏洞检测\n- 安全审计",
+    "schema": {
+      "properties": {
+        "output_format": {
+          "default": "json",
+          "description": "输出格式（json, table, sarif）",
+          "type": "string"
+        },
+        "severity": {
+          "description": "严重程度过滤（UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL）",
+          "type": "string"
+        },
+        "target": {
+          "description": "扫描目标（镜像名、目录、仓库）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "trivy {{#severity}}--severity {severity}{{/severity}} {{#output_format}}--format {output_format}{{/output_format}} {target}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "volatility3",
+    "description": "Volatility3内存取证分析工具\n\nVolatility3是Volatility框架的下一代版本，用于内存取证分析。\n\n**主要功能：**\n- 内存转储分析\n- 高级插件系统\n- 改进的性能\n- 更好的文档\n\n**使用场景：**\n- 内存取证\n- 恶意软件分析\n- 事件响应\n- 数字取证",
+    "schema": {
+      "properties": {
+        "memory_file": {
+          "description": "内存转储文件路径",
+          "type": "string"
+        },
+        "output_file": {
+          "description": "输出文件路径",
+          "type": "string"
+        },
+        "plugin": {
+          "description": "要执行的Volatility3插件",
+          "type": "string"
+        }
+      },
+      "required": [
+        "memory_file",
+        "plugin"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "volatility3 -f {memory_file} {{#output_file}}-o {output_file}{{/output_file}} {plugin}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "wafw00f",
+    "description": "WAF识别和指纹识别工具\n\nWafw00f是一个Web应用防火墙（WAF）识别和指纹识别工具。\n\n**主要功能：**\n- WAF检测\n- WAF指纹识别\n- 多种WAF支持\n- 绕过技术检测\n\n**使用场景：**\n- WAF识别\n- 安全测试\n- 渗透测试\n- 安全评估",
+    "schema": {
+      "properties": {
+        "target": {
+          "description": "目标URL或IP",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "wafw00f {target}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "waybackurls",
+    "description": "从Wayback Machine获取历史URL\n\nWaybackurls从Wayback Machine获取目标域名的历史URL。\n\n**主要功能：**\n- 历史URL发现\n- 版本获取\n- 子域名支持\n\n**使用场景：**\n- 历史URL收集\n- Bug bounty侦察\n- 安全测试\n- 内容发现",
+    "schema": {
+      "properties": {
+        "domain": {
+          "description": "目标域名",
+          "type": "string"
+        },
+        "get_versions": {
+          "default": false,
+          "description": "获取所有版本的URL",
+          "type": "boolean"
+        },
+        "no_subs": {
+          "default": false,
+          "description": "不包含子域名",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "waybackurls {{#get_versions}}-get-versions{{/get_versions}} {{#no_subs}}-no-subs{{/no_subs}} {domain}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "wpscan",
+    "description": "WordPress安全扫描器，用于检测WordPress漏洞\n\nWPScan是专门用于WordPress安全扫描的工具，可以检测主题、插件和核心漏洞。\n\n**主要功能：**\n- WordPress核心漏洞检测\n- 主题和插件漏洞扫描\n- 用户枚举\n- 密码暴力破解\n- 安全配置检查\n\n**使用场景：**\n- WordPress安全评估\n- 漏洞扫描\n- 渗透测试\n- 安全审计",
+    "schema": {
+      "properties": {
+        "url": {
+          "description": "WordPress站点URL",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "wpscan --url {url}",
+      "timeout_ms": 600000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "x8",
+    "description": "隐藏参数发现工具\n\nX8是一个用于发现Web应用中隐藏参数的工具。\n\n**主要功能：**\n- 隐藏参数发现\n- 多种HTTP方法支持\n- 自定义字典\n- 快速扫描\n\n**使用场景：**\n- 参数发现\n- Web应用安全测试\n- Bug bounty侦察\n- 安全测试",
+    "schema": {
+      "properties": {
+        "body": {
+          "description": "请求体",
+          "type": "string"
+        },
+        "headers": {
+          "description": "自定义请求头",
+          "type": "string"
+        },
+        "method": {
+          "default": "GET",
+          "description": "HTTP方法",
+          "type": "string"
+        },
+        "url": {
+          "description": "目标URL",
+          "type": "string"
+        },
+        "wordlist": {
+          "default": "/usr/share/wordlists/x8/params.txt",
+          "description": "参数字典",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "x8 --url {url} {{#wordlist}}--wordlist {wordlist}{{/wordlist}} {{#method}}--method {method}{{/method}} {{#body}}--body {body}{{/body}} {{#headers}}--headers {headers}{{/headers}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": false
+  },
+  {
+    "key": "xsser",
+    "description": "XSS漏洞测试工具\n\nXSSer是一个自动化XSS漏洞测试工具。\n\n**主要功能：**\n- XSS漏洞检测\n- 多种XSS技术\n- 自动化测试\n- 报告生成\n\n**使用场景：**\n- XSS漏洞测试\n- Web应用安全测试\n- 渗透测试\n- 漏洞验证",
+    "schema": {
+      "properties": {
+        "params": {
+          "description": "要测试的参数",
+          "type": "string"
+        },
+        "url": {
+          "description": "目标URL",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "xsser --url {url} {{#params}}--Fp {params}{{/params}}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "xxd",
+    "description": "十六进制转储工具\n\nXxd是一个十六进制转储工具，用于以十六进制格式显示文件内容。\n\n**主要功能：**\n- 十六进制转储\n- 可配置偏移和长度\n- 反向转换\n- 多种输出格式\n\n**使用场景：**\n- 二进制分析\n- 文件检查\n- 数据提取\n- 取证分析",
+    "schema": {
+      "properties": {
+        "file_path": {
+          "description": "要转储的文件路径",
+          "type": "string"
+        },
+        "length": {
+          "description": "要读取的字节数",
+          "type": "string"
+        },
+        "offset": {
+          "default": "0",
+          "description": "开始读取的偏移量",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "xxd {{#offset}}-s {offset}{{/offset}} {{#length}}-l {length}{{/length}} {file_path}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  },
+  {
+    "key": "zsteg",
+    "description": "LSB 隐写检测工具，用于检测 PNG/BMP 图片中的隐写数据\n\nzsteg 是一个用于检测 PNG 和 BMP 图片中 LSB (Least Significant Bit) 隐写的工具。\n\n**主要功能：**\n- LSB 隐写检测\n- 多种隐写算法支持\n- 自动提取隐写数据\n- 支持多种图片格式\n\n**使用场景：**\n- CTF 隐写题目\n- 图片隐写分析\n- 数字取证\n- 安全研究\n\n**注意事项：**\n- 需要 Ruby 环境\n- 支持 PNG 和 BMP 格式\n- 可以检测多种隐写算法",
+    "schema": {
+      "properties": {
+        "all": {
+          "description": "检测所有可能的隐写方法",
+          "type": "boolean"
+        },
+        "file": {
+          "description": "要分析的图片文件路径",
+          "type": "string"
+        },
+        "lsb": {
+          "description": "只检测 LSB 隐写",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "type": "object"
+    },
+    "exec": {
+      "command": "zsteg {{#all}}--all{{/all}} {{#lsb}}--lsb{{/lsb}} {file}",
+      "timeout_ms": 180000
+    },
+    "agents": [
+      "worker",
+      "pentest"
+    ],
+    "deferred": true
+  }
+]

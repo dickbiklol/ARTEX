@@ -17,6 +17,20 @@ func DomainKey(fqdn string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(fqdn)), ".")
 }
 
+// NormalizeHost turns untrusted text (a search-hit URL, a bare hostname, a
+// "//host/path" fragment) into a canonical hostname for storage and comparison.
+//
+// It is the exported face of the strict scope parser: it strips scheme, port and a
+// trailing dot, punycodes internationalised names, and rejects anything that could
+// never be a legal DNS host (single label, empty/oversized labels, leading/trailing
+// hyphen, non-LDH characters).
+//
+// Use this — not DomainKey — whenever the input comes from free text: DomainKey only
+// lowercases, so "foo..bar", "exa mple.com" or a bare "xn--" would sail through and
+// become a junk asset. DomainKey remains correct for values the platform produced
+// itself.
+func NormalizeHost(raw string) (string, error) { return scopeHostname(raw) }
+
 func IPKey(ip string) string { return strings.TrimSpace(ip) }
 
 // RootDomain returns the registrable domain (eTLD+1) for a host and whether the

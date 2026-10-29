@@ -186,7 +186,10 @@ func (t *ToolSet) CoverageDisabled() bool { return t.coverageDisabled }
 // (the filter basis for asset queries), not merely a coverage denominator, so the
 // agents that own范围定义 keep it either way — in lockstep with insertAssets'
 // auto-scope hook, which also runs regardless of the switch.
-var coverageOnlyTools = map[string]bool{"list_untested_assets": true}
+var coverageOnlyTools = map[string]bool{
+	"list_untested_assets": true,
+	"list_coverage_gaps":   true,
+}
 
 // DropCoverageTools returns tools with the coverage-only ones removed when this
 // task has the feature disabled; otherwise it returns tools unchanged.
@@ -468,28 +471,10 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	// digest 且仍冷的（hidden）走 cold_digests，不在此重复。每条 {id, summary, from_intent?,
 	// confidence?}；evidence 等详情用 node_detail(id)。更早的用 list_facts 翻。
 	const recentFactsCap = 20
-	recentFacts := make([]map[string]any, 0, recentFactsCap)
-	for _, n := range factNodes {
-		if len(recentFacts) >= recentFactsCap {
-			break
-		}
-		if hidden(n.ID) {
-			continue // 已折进 digest 且仍冷 —— 见 cold_digests
-		}
-		m := compactNode(n)
-		if from := factFrom[n.ID]; from > 0 {
-			m["from_intent"] = from // 本事实由哪个意图产生
-		}
-		// confidence 带进概览：让规划者一眼看出哪条结论只是 inferred（尤其否定结论
-		// 别当铁案）；evidence 较长，留给 node_detail(id)。
-		var fp map[string]any
-		if json.Unmarshal(n.Payload, &fp) == nil {
-			if c, ok := fp["confidence"].(string); ok && c != "" {
-				m["confidence"] = c
-			}
-		}
-		recentFacts = append(recentFacts, m)
-	}
+	// 这一窗改成【按资产轮转】而不是全局最新 20 条：多目标任务里，一个活跃资产的事实
+	// 会把其它资产的事实全部挤出窗口，规划者于是以为整个任务只有那一个目标——这正是
+	// “只打一个域名、其它域名被忽略”的结构性成因。轮转后每个资产都至少在视野里。
+	recentFacts := t.balancedFacts(factNodes, hidden, factFrom, recentFactsCap)
 	out["recent_facts"] = recentFacts
 	// recent_done_intents：非折叠的已结束意图里最新的一窗（≤N，recentDone 已按 id 降序）。
 	// 更早的看 done_intents_total 计数 + node_detail(id)。
@@ -498,6 +483,18 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 		recentDone = recentDone[:recentDoneCap]
 	}
 	out["recent_done_intents"] = compactIntents(recentDone, parentsOf, yieldsOf)
+	// asset_focus / untouched_assets：按资产的活动汇总，【最少被碰的排最前面】。
+	// 原来的概览只有 coverage.host_count 这一个数字，规划者根本看不出“五个目标里
+	// 只有一个被打过”，于是持续给同一个目标派工。untouched_assets 把“从没跑过任何
+	// 意图”的目标单独列出来，让补齐覆盖率变成看得见的工作而不是盲区。
+	if t.as != nil && t.ts != nil && t.taskID > 0 {
+		if focus, untouched := t.assetFocus(20); len(focus) > 0 {
+			out["asset_focus"] = focus
+			if len(untouched) > 0 {
+				out["untouched_assets"] = untouched
+			}
+		}
+	}
 	// cold-digest §6.1: 折叠冷区的 digest body，按最新成员时间降序取前 N；被截的更旧 digest
 	// 只给裸 id（仍可 expand_digest 展开），避免冷区唯一出口被无限拉长。
 	const coldDigestsCap = 15
@@ -536,6 +533,12 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 					} else {
 						m["pct"] = cov.Pct
 					}
+				}
+				// 漏洞类台账汇总：资产级 pct 只说明"有没有人碰过这台主机"，
+				// 台账的 by_class 才说明"哪一类漏洞还没打"。两者并列给规划者，
+				// 否则它会拿资产 pct 当成绩单（这正是过去漏报的结构性原因）。
+				if rollup := t.coverageRollup(); rollup != nil {
+					m["vulnclass_ledger"] = rollup
 				}
 			}
 			if hosts, err := t.as.HostsByTaskWithSources(t.taskID); err == nil {
@@ -980,13 +983,32 @@ const factSummaryMax = 160
 
 // compactFact is compactNode with the summary rune-capped for list_facts, so a
 // page of facts stays bounded regardless of how long any single summary grew.
+// It also carries the two fields that decide whether a *negative* conclusion may
+// be trusted (confidence + probe_attempts): leaving them out of the compact view
+// handed the verdict to whoever phrased the summary most firmly.
 func compactFact(n *db.Node) map[string]any {
 	m := compactNode(n)
 	if s, ok := m["summary"].(string); ok && len([]rune(s)) > factSummaryMax {
 		m["summary"] = string([]rune(s)[:factSummaryMax]) + "…"
 		m["summary_truncated"] = true
 	}
+	addFactTrustFields(m, n)
 	return m
+}
+
+// addFactTrustFields copies confidence and probe_attempts from a fact's payload
+// into its compact view.
+func addFactTrustFields(m map[string]any, n *db.Node) {
+	var p map[string]any
+	if json.Unmarshal(n.Payload, &p) != nil {
+		return
+	}
+	if c, ok := p["confidence"].(string); ok && c != "" {
+		m["confidence"] = c
+	}
+	if v, ok := p["probe_attempts"].(float64); ok && v > 0 {
+		m["probe_attempts"] = int(v)
+	}
 }
 
 func (t *ToolSet) nodeDetail() actool.CoreTool {
@@ -1023,6 +1045,50 @@ type intentItem struct {
 	AssetIDs  []json.RawMessage `json:"asset_ids"`
 	ParentIDs []json.RawMessage `json:"parent_ids"`
 	Priority  int               `json:"priority"`
+	// VulnClass tags the vulnerability class this intent targets (a standard id from
+	// db.VulnClasses). Optional but strongly encouraged: it is what lets the worker
+	// open the right playbook and what links the intent to the coverage ledger.
+	VulnClass string `json:"vulnclass"`
+	// Specialist narrows the worker's method: web|api|ad|cloud|code|infra. It is a
+	// per-intent hint rather than a separate worker pool, so the claim-based pool
+	// stays saturated and a worker can switch lanes between intents.
+	Specialist string `json:"specialist"`
+}
+
+// specialistPlaybooks maps a specialist tag to the skill a worker should open. Kept
+// in code so the prompt and the skill catalog can never drift apart.
+var specialistPlaybooks = map[string]string{
+	"web":   "web-attack-methods",
+	"api":   "web-attack-methods + api-recon",
+	"ad":    "active-directory-attack",
+	"cloud": "cloud-attack-methods",
+	"code":  "source-code-hunting + zero-day-discovery",
+	"infra": "attack-surface-recon",
+}
+
+func normalizeSpecialist(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	if _, ok := specialistPlaybooks[s]; ok {
+		return s
+	}
+	switch s { // tolerate the obvious aliases instead of silently dropping the hint
+	case "http", "website", "app", "application":
+		return "web"
+	case "rest", "graphql":
+		return "api"
+	case "windows", "domain", "kerberos", "ldap":
+		return "ad"
+	case "k8s", "kubernetes", "aws", "azure", "gcp":
+		return "cloud"
+	case "src", "source", "audit", "sast":
+		return "code"
+	case "network", "host", "service", "recon":
+		return "infra"
+	}
+	return ""
 }
 
 // addOneIntent 创建一条意图节点并连上游血缘，返回 id。
@@ -1048,8 +1114,7 @@ func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
 	if priority == 0 {
 		priority = 5
 	}
-	anchors := pidList(it.AssetIDs)
-	// 资产拦截：意图绑定的资产若命中系统资产拦截规则，则禁止下发该意图。
+	anchors := pidList(it.AssetIDs)	// 资产拦截：意图绑定的资产若命中系统资产拦截规则，则禁止下发该意图。
 	if t.as != nil && len(anchors) > 0 {
 		hits, err := t.as.CheckAssetsIntercept(t.taskID, anchors)
 		if err != nil {
@@ -1067,6 +1132,16 @@ func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
 	payload := map[string]any{"summary": it.Summary}
 	if len(anchors) > 0 {
 		payload["asset_ids"] = anchors
+	}
+	// vulnclass/specialist travel with the intent so the worker opens the right
+	// playbook and the coverage ledger can be written back without guessing. An
+	// unknown class is dropped rather than stored: a typo'd class is worse than no
+	// class, because it creates a ledger cell that never matches anything.
+	if vc := strings.TrimSpace(it.VulnClass); vc != "" && db.IsKnownVulnClass(vc) {
+		payload["vulnclass"] = vc
+	}
+	if sp := normalizeSpecialist(it.Specialist); sp != "" {
+		payload["specialist"] = sp
 	}
 	id, err := t.ts.AddIntent(payload, priority, anchors, "planner")
 	if err != nil {
@@ -1097,6 +1172,8 @@ func (t *ToolSet) addIntent() actool.CoreTool {
 			"asset_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "本方向要测试/攻击的【目标资产 id】（**尽量传**，0/1/多个；是 list_assets 返回的资产 id，不是探索节点 id）：这条探索方向针对哪些资产（站点/接口/参数/主机等）。只要方向围绕某些具体资产就务必传上——它是「这条探索打哪些目标」的结构化标记，用于覆盖去重、把意图连入资产链路。仅当纯全局侦察、确实没有具体目标资产时才留空。"},
 			"parent_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "上游锚点 id（可选，0/1/多个）：本方向由哪些【已确认的事实(fact)/发现(finding)】综合得出。**只能填已存在的 fact/finding 节点 id,不能填意图/目标/提示**——意图必须锚在已确认知识上,发现驱动而非凭空规划。多个事实共同产生一个新意图就传多个;顶层全新侦察方向请留空（会自动挂到任务起点 origin fact）。"},
 			"priority":   intp("优先级 0-10，默认5"),
+			"vulnclass":  str("本方向主打的漏洞类标准 id（强烈建议填，见 vulnclass-coverage）：sqli/xss_reflected/xss_stored/xss_dom/ssti/cmdi/lfi/ssrf/xxe/file_upload/deserialization/idor/auth_bypass/authz_missing/csrf/open_redirect/jwt_oauth/business_logic/info_disclosure/misconfig/default_creds/rate_limit/subdomain_takeover/cors/cache_poisoning/http_smuggling/graphql/dependency_cve/weak_crypto/host_header。填了 worker 才会按类开对应打法手册，覆盖台账也才能对上。"),
+			"specialist": str("本方向的方法域（可选）：web|api|ad|cloud|code|infra。它只影响 worker 优先打开哪本 playbook，不改变调度（仍是同一批 worker 抢意图）。"),
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
@@ -1113,7 +1190,39 @@ func (t *ToolSet) addIntent() actool.CoreTool {
 			ids := make([]int64, len(items))
 			errs := map[string]string{}
 			createdAny := false
+
+			// 前沿水位（背压）：开放意图超过上限时不再新增，否则规划者产意图的速度会
+			// 结构性高于 worker 消化速度（每完成一条意图就唤醒一次规划者），前端看到的就是
+			// “一堆 pending 永远跑不到”。上限由 server 按 workers×4 注入，0 = 不限。
+			openNow := 0
+			if t.ts != nil {
+				if n, err := t.ts.CountOpenIntents(); err == nil {
+					openNow = n
+				}
+			}
+			capLimit := t.openIntentCapLimit()
+			if capLimit > 0 && openNow >= capLimit {
+				return jsonResult(map[string]any{
+					"refused": true, "open": openNow, "cap": capLimit,
+					"message": "前沿已有 " + strconv.Itoa(openNow) + " 条待办意图（上限 " + strconv.Itoa(capLimit) +
+						" = workers×4）。本轮不再新增：先让 worker 消化，或用 kill_work 取消低价值意图再派。" +
+						"不要用空转的重复意图填满队列。",
+				})
+			}
+
+			// 每资产配额：同一资产已有 {perAssetOpenIntentCap} 条待办/在跑时，新意图会被
+			// 拒。一次读、批量内自己累加，避免 8 条同资产意图各自看到“批前”计数而全部通过。
+			assetCounts := t.assetIntentCounts()
+
 			for i, it := range items {
+				if capLimit > 0 && openNow >= capLimit {
+					errs[strconv.Itoa(i)] = "前沿已满（" + strconv.Itoa(openNow) + "/" + strconv.Itoa(capLimit) + "），本条未创建"
+					continue
+				}
+				if msg := t.assetQuotaExceeded(assetCounts, it.AssetIDs); msg != "" {
+					errs[strconv.Itoa(i)] = msg
+					continue
+				}
 				id, err := t.addOneIntent(it)
 				if err != nil {
 					errs[strconv.Itoa(i)] = err.Error()
@@ -1121,6 +1230,8 @@ func (t *ToolSet) addIntent() actool.CoreTool {
 				}
 				ids[i] = id
 				createdAny = true
+				openNow++
+				t.bumpAssetCounts(assetCounts, it.AssetIDs)
 			}
 
 			// 人经主 agent 直投意图 → 若任务已 done（无 open 目标的 goalless 分支），把它
@@ -1193,6 +1304,12 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 					}
 				}
 				if allMet {
+					// 收官门禁：目标只在任务开始时分解了一次，全部 met 并不等于每个目标资产
+					// 都被真正测过。缺少这道检查时，“一个域名被打完 → 所有目标 met → 任务
+					// done”会把其它域名永远丢在未执行状态（它们连一次都没跑过）。
+					if msg := t.completionBlockedMsg(); msg != "" {
+						return actool.Errorf("goal %d 已标记 met，但" + msg), nil
+					}
 					t.GoalMet = true
 					t.Reason = fmt.Sprintf("所有 %d 个目标均已 met（最后由 goal %d 触发）", len(goals), goal)
 					return actool.Text(fmt.Sprintf("goal %d marked met；本任务所有目标均已达成，任务自动判定完成", goal)), nil
@@ -1208,6 +1325,11 @@ func (t *ToolSet) goalMet() actool.CoreTool {
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct{ Reason string }
 			_ = json.Unmarshal(in, &a)
+			// 同一个收官门禁：goal_met 是绕过逐个 prove_goal 的快捷路径，不能成为
+			// “跳过未测资产”的后门。
+			if msg := t.completionBlockedMsg(); msg != "" {
+				return actool.Errorf(msg), nil
+			}
 			t.GoalMet = true
 			t.Reason = a.Reason
 			return actool.Text("acknowledged: goal marked met"), nil
@@ -1304,13 +1426,25 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 // must NOT be stuffed into the asset graph via upsert_asset.
 // factItem 是 record_fact 批量/单条的一条事实。
 type factItem struct {
-	Summary    string            `json:"summary"`
-	Detail     string            `json:"detail"`
-	Evidence   string            `json:"evidence"`   // 一行关键证据（命令+关键输出行），支撑结论、便于事后核对
-	Confidence string            `json:"confidence"` // observed（直接看到）| inferred（据现象推断）
-	IntentID   json.RawMessage   `json:"intent_id"`
-	AssetIDs   []json.RawMessage `json:"asset_ids"`
+	Summary       string            `json:"summary"`
+	Detail        string            `json:"detail"`
+	Evidence      string            `json:"evidence"`       // 一行关键证据（命令+关键输出行），支撑结论、便于事后核对
+	Confidence    string            `json:"confidence"`     // observed（直接看到）| inferred（据现象推断）
+	ProbeAttempts int               `json:"probe_attempts"` // 否定结论专用：本条结论建立在多少次【彼此不同】的尝试之上
+	IntentID      json.RawMessage   `json:"intent_id"`
+	AssetIDs      []json.RawMessage `json:"asset_ids"`
+	// Capability tags a NEW ability this fact unlocks: creds|token|internal_route|
+	// upload|file_read|code_exec|admin_access. When set, previously-closed coverage
+	// cells on the same assets are reopened, because a direction that was dead
+	// without that capability may be wide open with it.
+	Capability []string `json:"capability"`
 }
+
+// minProbeAttemptsForNegative is the bar a negative conclusion must clear before
+// the planner is allowed to treat it as a closed direction. It exists because a
+// single "not injectable" observation used to be enough to bury a whole vuln
+// class — the cheapest, most common way this platform missed vulnerabilities.
+const minProbeAttemptsForNegative = 3
 
 // recordOneFact 写一条 fact 节点并连到意图（intent→yields→fact）。defaultIntent 为
 // 批量时的默认意图（本条未给 intent_id 时用）。
@@ -1327,6 +1461,22 @@ func (t *ToolSet) recordOneFact(it factItem, defaultIntent int64) (int64, error)
 	}
 	if c := strings.TrimSpace(it.Confidence); c != "" {
 		payload["confidence"] = c
+	}
+	// probe_attempts 只对否定结论有意义。缺省不写（0 表示"未声明"），
+	// 让规划者能区分"探透了才否定"与"探一次就否定"。
+	if it.ProbeAttempts > 0 {
+		payload["probe_attempts"] = it.ProbeAttempts
+	}
+	if len(it.Capability) > 0 {
+		caps := make([]string, 0, len(it.Capability))
+		for _, c := range it.Capability {
+			if c = strings.TrimSpace(strings.ToLower(c)); c != "" {
+				caps = append(caps, c)
+			}
+		}
+		if len(caps) > 0 {
+			payload["capability"] = caps
+		}
 	}
 	intent := pid(it.IntentID)
 	if intent <= 0 {
@@ -1357,15 +1507,18 @@ func (t *ToolSet) recordFact() actool.CoreTool {
 		"⚠️只写你在工具输出里【真实看到】的结论，不要脑补。evidence 与 confidence 用来防止不准确的结论污染图谱：\n"+
 		"  · evidence=支撑本结论的【一行】关键证据（命令+最能证明的那一两行输出），**务必简洁**——细节已在 detail，这里不要再粘大段输出。\n"+
 		"  · confidence=observed（输出里直接看到）| inferred（据现象推断）。\n"+
-		"  · **否定类结论**（不可注入/端口关闭/未发现入口等）只写\"观察 + 试探性读法\"——陈述你实际看到什么，方向是否放弃由规划者综合全局定；务必给 evidence，手段没穷尽或证据弱（含只探一次、看起来像）标 inferred，确已穷尽且直接看到才标 observed。",
+		"  · **否定类结论**（不可注入/端口关闭/未发现入口等）只写\"观察 + 试探性读法\"——陈述你实际看到什么，方向是否放弃由规划者综合全局定；务必给 evidence，手段没穷尽或证据弱（含只探一次、看起来像）标 inferred，确已穷尽且直接看到才标 observed。\n"+
+		"  · **probe_attempts（否定结论必填）**：本条否定结论建立在多少次【彼此不同】的尝试之上——不同 payload/编码/参数位置/HTTP 方法/传输方式(JSON↔form)各算一次，同一请求重发不算。少于 "+strconv.Itoa(minProbeAttemptsForNegative)+" 次时规划者【不会】把它当定论，会重新派工复核。",
 		obj(map[string]any{
-			"facts":      map[string]any{"type": "array", "description": "【有多条不同结论时用】事实数组，元素字段同下方顶层字段（summary/detail/evidence/confidence/intent_id/asset_ids）；省略 intent_id 则用顶层 intent_id。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
-			"summary":    str("对本次探索结论的【总结性一句话】（是对 detail 的概括）"),
-			"intent_id":  idp("产生本事实的意图 id（你领到的意图；批量时作为各条默认）"),
-			"detail":     str("本事实的相关细节：把这次探索的多个观察事实都写进这里"),
-			"evidence":   str("【一行】关键证据：命令 + 最能证明结论的那一两行输出。务必简洁，不要粘大段输出（细节放 detail）。"),
-			"confidence": str("observed（输出里直接看到）| inferred（据现象推断）。否定结论务必如实标注。"),
-			"asset_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "相关资产 id（可选，0/1/多个）：该事实涉及哪些资产"},
+			"facts":          map[string]any{"type": "array", "description": "【有多条不同结论时用】事实数组，元素字段同下方顶层字段（summary/detail/evidence/confidence/probe_attempts/intent_id/asset_ids）；省略 intent_id 则用顶层 intent_id。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
+			"summary":        str("对本次探索结论的【总结性一句话】（是对 detail 的概括）"),
+			"intent_id":      idp("产生本事实的意图 id（你领到的意图；批量时作为各条默认）"),
+			"detail":         str("本事实的相关细节：把这次探索的多个观察事实都写进这里"),
+			"evidence":       str("【一行】关键证据：命令 + 最能证明结论的那一两行输出。务必简洁，不要粘大段输出（细节放 detail）。"),
+			"confidence":     str("observed（输出里直接看到）| inferred（据现象推断）。否定结论务必如实标注。"),
+			"probe_attempts": intp("否定结论必填：本条结论建立在多少次彼此不同的尝试上（不同 payload/编码/参数位置/方法/传输方式各算一次）。"),
+			"capability":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "本条事实新获得的能力（可选）：creds/token/internal_route/upload/file_read/code_exec/admin_access。填了会把这些资产上「之前判为不可行」的覆盖格子重新打开——因为拿到新能力后那些结论可能已经不成立了。"},
+			"asset_ids":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "相关资产 id（可选，0/1/多个）：该事实涉及哪些资产"},
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
@@ -1382,6 +1535,7 @@ func (t *ToolSet) recordFact() actool.CoreTool {
 
 			ids := make([]int64, len(items))
 			errs := map[string]string{}
+			reopen := map[int64]bool{}
 			for i, it := range items {
 				id, err := t.recordOneFact(it, defaultIntent)
 				if err != nil {
@@ -1389,6 +1543,23 @@ func (t *ToolSet) recordFact() actool.CoreTool {
 					continue
 				}
 				ids[i] = id
+				if len(it.Capability) > 0 {
+					for _, raw := range it.AssetIDs {
+						if aid := pid(raw); aid > 0 {
+							reopen[aid] = true
+						}
+					}
+				}
+			}
+			// A new capability invalidates old negatives on the same assets: "no
+			// upload path" stops being true once you hold an admin session. Reopening
+			// is what keeps the planner from treating a dead end as permanent.
+			if len(reopen) > 0 && t.as != nil && t.taskID > 0 {
+				idsToReopen := make([]int64, 0, len(reopen))
+				for aid := range reopen {
+					idsToReopen = append(idsToReopen, aid)
+				}
+				_, _ = t.as.ReopenNegativesOnCapability(t.taskID, idsToReopen, false)
 			}
 
 			if !batch { // 单条：保持原返回
@@ -2050,5 +2221,14 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
+		// list_coverage_gaps：漏洞类覆盖台账的缺口清单（asset×param×vulnclass）。
+		// 这是"哪一类还没打"的权威来源——比 list_untested_assets 的资产级视角细一层。
+		t.listCoverageGaps(),
+		// OOB：规划者自己也可能要验证一条线索，且它需要知道这个能力存在
+		// （否则永远不会派"用带外回调确认"的意图）。
+		oobRequest(), oobPoll(),
+		// batch_sweep：同一类漏洞一次铺到多个资产，绕过 IntentBatchMax 上限。
+		// 只给 planner——worker 若能自己扩容队列，就会出现"一条意图生十条意图"的失控。
+		t.batchSweep(),
 	}
 }

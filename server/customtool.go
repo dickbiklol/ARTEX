@@ -242,11 +242,13 @@ func timeoutOr(ms, def int) time.Duration {
 
 // ---------- 通用工具构造 ----------
 
-// customTools builds CoreTools for every user-defined (system=false) tool row.
-// shell-kind tools are environment hints only — they surface in the Bash tool
-// description via ToolResolve and do NOT create callable tool entries here.
+// customTools builds CoreTools for every enabled row that carries an execution spec:
+// user-defined (system=false) tools plus the seeded built-in command recipes
+// (system=true, kind='command'). shell-kind tools are environment hints only — they
+// surface in the Bash tool description via ToolResolve and do NOT create callable
+// tool entries here.
 func (s *Server) customTools() ([]actool.CoreTool, error) {
-	rows, err := s.m.pg.ListCustomTools()
+	rows, err := s.m.pg.ListExecutableTools()
 	if err != nil {
 		return nil, err
 	}
@@ -494,12 +496,76 @@ func identity(s string) string { return s }
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // renderTemplate replaces {name} placeholders with each param's rendered value.
+//
+// Conditional groups {{#name}}...{{/name}} are resolved first: the whole group is
+// dropped when that param is absent or empty, and kept (with its {name} inside)
+// otherwise. Recipes need this because a plain {name} for an omitted optional param
+// renders as '' and leaves a dangling flag ("-s ''"); scanner wrappers like
+// nuclei/ffuf have a dozen optional flags each.
 func renderTemplate(tmpl string, params map[string]any, quote func(string) string) string {
-	out := tmpl
+	out := dropEmptyGroups(tmpl, params)
 	for k, v := range params {
 		out = strings.ReplaceAll(out, "{"+k+"}", quote(valToStr(v)))
 	}
 	return out
+}
+
+// dropEmptyGroups resolves {{#key}}...{{/key}} groups (non-nested) against params.
+// A group whose param is present and non-empty keeps its body; otherwise the body
+// is removed along with the tags. Malformed markup is left untouched.
+func dropEmptyGroups(tmpl string, params map[string]any) string {
+	for {
+		start := strings.Index(tmpl, "{{#")
+		if start < 0 {
+			return tmpl
+		}
+		rest := tmpl[start+3:]
+		nameEnd := strings.Index(rest, "}}")
+		if nameEnd < 0 {
+			return tmpl // unclosed tag: leave as written
+		}
+		key := strings.TrimSpace(rest[:nameEnd])
+		if key == "" {
+			return tmpl
+		}
+		endTag := "{{/" + key + "}}"
+		body := rest[nameEnd+2:]
+		bodyEnd := strings.Index(body, endTag)
+		if bodyEnd < 0 {
+			return tmpl // missing close tag: leave as written
+		}
+		inner, after := body[:bodyEnd], body[bodyEnd+len(endTag):]
+		if paramEmpty(params[key]) {
+			tmpl = tmpl[:start] + after
+		} else {
+			tmpl = tmpl[:start] + inner + after
+		}
+	}
+}
+
+// paramEmpty reports whether a param should make its conditional group disappear:
+// absent, nil, blank string, an empty collection, or a bool that is false. The bool
+// case matters because switch-style flags (-O, --batch) are modelled as boolean
+// params whose group must vanish when the model passes false.
+func paramEmpty(v any) bool {
+	if v == nil {
+		return true
+	}
+	if b, ok := v.(bool); ok {
+		return !b
+	}
+	if s, ok := scalarStr(v); ok {
+		return strings.TrimSpace(s) == ""
+	}
+	switch x := v.(type) {
+	case []any:
+		return len(x) == 0
+	case []string:
+		return len(x) == 0
+	case map[string]any:
+		return len(x) == 0
+	}
+	return false
 }
 
 // valToStr renders a param value: scalars as-is, arrays/objects as compact JSON.

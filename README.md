@@ -87,11 +87,13 @@ cd ARTEX
 git clone https://github.com/Hinln/ARTEX.git
 cd ARTEX
 cp .env.example .env          # 填 POSTGRES_PASSWORD、可选 ANTHROPIC_API_KEY
-docker compose up -d          # 拉取 autumn27/artex 镜像 + postgres
+docker compose up -d --build  # 本地从源码构建镜像（首次约 5–15 分钟）+ postgres
 # → http://localhost:8787
 ```
 
-镜像已含常用工具（ripgrep/curl/vim/npm/nmap…）；`./skills` 与 `./data` 以绑定挂载持久化。
+镜像在本地用 `Dockerfile.source` 构建，**不依赖任何预构建镜像**（宿主机无需装 Go / Node）。
+已含常用工具（nuclei / ffuf / sqlmap / nmap / katana / ripgrep …）；`./skills` 与 `./data`
+以绑定挂载持久化。只想重建镜像：`docker compose build`；改了代码后重建：`docker compose up -d --build`。
 
 远程 MCP 可在系统设置中选择 `http`（Streamable HTTP）或 `sse`（旧版 SSE）。
 旧版 SSE 服务通常使用 `GET /sse` 建立事件流，再通过服务返回的
@@ -462,6 +464,30 @@ flowchart TB
 ```
 
 于是攻击链在“事件驱动 + 无状态会话”的环境下依然**稳定推进、不重复、不错序**——这是 ARTEX 能自主走完多步利用链的关键。
+
+### 盲态漏洞怎么确认：带外回调（OOB）
+
+有一整类漏洞在攻击连接上**永远没有回显**：盲 SSRF、盲 XXE、盲 SQLi、盲目命令注入、Log4j/JNDI、
+后端服务端抓取型盲 XSS。没有旁路观测，平台只能把它们记成 `inferred`——这是自动化渗透「看起来
+没测出东西」最集中的一类原因。
+
+ARTEX 因此内置了两个工具，planner 和 worker 都能用：
+
+| 工具 | 作用 |
+|---|---|
+| `oob_request` | 申请一个**本次专属**的回调域名，返回 `{token, host}` |
+| `oob_poll(token, wait_seconds)` | 查询该 token 是否收到回调，返回 `{count, hits, verdict}` |
+
+用法固定三步：`oob_request` 拿 host → 把 host 拼进 payload **实际发送** → `oob_poll` 查记录。
+`count > 0` 即为 confirmed，可上报 finding（evidence 里同时带 payload 与命中的 query）。
+`count = 0` **不是否定结论**——WAF 拦截、目标不出网、DNS 走内网解析都会让它为空，必须换编码 /
+注入位置 / 协议，累计 3 种以上打法都无回调才可写 `tried_negative`。
+
+- 默认后端是公共 dnslog.cn，**不需要自建任何基础设施**；容器需能出网。
+- 回调客户端**不走**录制代理与 `ARTEX_LLM_PROXY`——这些请求是我们自己发的，不属于目标流量，
+  绝不能混进 traffic 记录。
+- 隔离环境用 `ARTEX_OOB_DISABLED=1` 关闭；自建 interactsh/dnslog 用 `ARTEX_OOB_BASE_URL` 指向。
+- 每个 token 独立，多个 worker 并发时不会互相串记录；token 是随机值，**不含任何目标信息**。
 
 ---
 

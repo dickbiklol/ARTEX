@@ -12,7 +12,9 @@ services:
   artex-bench:
     build:
       context: .
-      dockerfile: Dockerfile.bench
+      # 原来指向 Dockerfile.bench，但仓库里没有这个文件 → 参数化，默认用自建镜像的
+      # Dockerfile.source（同样从源码编前端+后端，不需要本机装 Go/Node）。
+      dockerfile: ${ARTEX_DOCKERFILE:-Dockerfile.source}
     image: artex-bench:latest
     container_name: artex-bench
     env_file:

@@ -330,6 +330,42 @@ export interface CoverageAssetRefs {
   findings: CoverageAssetRef[];
 }
 
+// ---- 漏洞类覆盖台账（GET /tasks/{id}/coverage-ledger）----
+// 这是规划者据以派工的那份数据：asset × param × vulnclass 的格子状态。
+// 与资产覆盖度（本文件上方的 /coverage）互补，不是替代。
+export interface CoverageClassStat {
+  vulnclass: string;
+  total: number;
+  touched: number; // state != 'untested'
+  negative: number; // tried_negative（含未探够的）
+  confirmed: number;
+  attempts: number; // 该类累计尝试次数
+}
+
+// 一个「还需要动手」的格子。untested=没碰；suspected=有线索没验证；
+// tried_negative 且 attempts 未达门槛 = 试过但没探够。
+export interface CoverageGap {
+  asset_id: number;
+  asset_type: string;
+  label: string;
+  param?: string;
+  vulnclass: string;
+  state: "untested" | "suspected" | "tried_negative" | string;
+  attempts: number;
+}
+
+export interface CoverageLedgerData {
+  enabled: boolean;
+  cells: number;
+  touched: number;
+  confirmed: number;
+  pct: number | null;
+  by_class: CoverageClassStat[];
+  gaps: CoverageGap[];
+  gaps_total: number;
+  catalog: { id: string; label: string }[];
+}
+
 // ---- Workspace file manager (workDir) ----
 export interface WorkspaceEntry {
   name: string;
@@ -1609,4 +1645,56 @@ export interface InterceptExecution {
   session: string;
   seq: number;
   items: Activity[];
+}
+
+// ---- 目标发现（discovery）----
+// 候选永远不等于授权：task_scope 才是授权边界，所以 /start 是单独一个人工动作。
+export type DiscoveryRunStatus =
+  | "queued"
+  | "keywords"
+  | "searching"
+  | "filtering"
+  | "ready"
+  | "started"
+  | "failed";
+
+export type DiscoveryCandidateStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "skipped"
+  | "used";
+
+export interface DiscoveryRun {
+  id: number;
+  query: string;
+  params: Record<string, unknown>;
+  status: DiscoveryRunStatus;
+  keywords: string[];
+  stats: Record<string, unknown>;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscoveryCandidate {
+  id: number;
+  run_id: number;
+  host: string;
+  root_domain?: string;
+  source_query?: string;
+  source_url?: string;
+  title?: string;
+  snippet?: string;
+  relevance: number;
+  status: DiscoveryCandidateStatus;
+  skip_reason?: string;
+  asset_id?: number;
+  task_id?: number;
+  created_at: string;
+}
+
+export interface DiscoveryRunDetail {
+  run: DiscoveryRun;
+  counts: Partial<Record<DiscoveryCandidateStatus, number>>;
 }

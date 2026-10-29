@@ -7,6 +7,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-artex}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      # 宿主机端口可配，且【只绑 127.0.0.1】：Postgres 不对外网暴露。
+      # 同一台机器跑多套 ARTEX 时，每个实例给不同的 POSTGRES_HOST_PORT（5433/5434/…）——
+      # 容器内部始终是 5432，所以冲突只可能发生在宿主机侧。
+      # 不需要用 psql/GUI 从宿主机连库时，把这条删掉即可（攻击面更小）。
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-artex} -d ${POSTGRES_DB:-artex}"]
       interval: 5s
@@ -15,7 +21,29 @@ services:
     restart: unless-stopped
 
   artex:
-    image: autumn27/artex:${ARTEX_TAG:-latest}
+    # 只从本地源码构建，不拉取任何预构建镜像（上游镜像已不再发布）。
+    # image 只是给构建产物一个固定名字，从未在 registry 上存在，也不会去 pull。
+    image: artex:${ARTEX_TAG:-local}
+    # VPS 上只需要 Docker：前端(Next 静态导出) + 后端(Go) + 扫描器工具链
+    # 全部在 Dockerfile.source 里编译，宿主机不需要装 Go / Node。
+    #   docker compose up -d --build     ← 首次或改了代码后
+    #   docker compose up -d             ← 已有镜像时直接起（快）
+    # ARTEX_BUILD_CONTEXT 由 install.sh 写成源码目录；自定义安装目录时必需，
+    # 否则 build context 会指向那个只有 compose 文件的空目录。
+    build:
+      context: ${ARTEX_BUILD_CONTEXT:-.}
+      dockerfile: ${ARTEX_DOCKERFILE:-Dockerfile.source}
+      args:
+        ARTEX_VERSION: ${ARTEX_VERSION:-dev}
+        # 构建开关（写在 .env 里即可，不用改本文件）
+        #   WITH_SCANNERS=false              不装 nuclei/ffuf/…（镜像小很多，但没有扫描器）
+        #   INSTALL_NUCLEI_TEMPLATES=true    nuclei 开箱即用（模板几百 MB）
+        #   INSTALL_SECLISTS=true            ffuf/gobuster 有默认词表
+        #   INSTALL_EXPLOITDB=true           提供 searchsploit
+        WITH_SCANNERS: ${WITH_SCANNERS:-true}
+        INSTALL_NUCLEI_TEMPLATES: ${INSTALL_NUCLEI_TEMPLATES:-false}
+        INSTALL_SECLISTS: ${INSTALL_SECLISTS:-false}
+        INSTALL_EXPLOITDB: ${INSTALL_EXPLOITDB:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -28,9 +56,15 @@ services:
       ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-}
       ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-}
       ARTEX_LLM_PROXY: ${ARTEX_LLM_PROXY:-}
+      # 带外回调（OOB）：验证盲 SSRF/XXE/SQLi/命令注入/Log4j 的唯一手段。
+      # 容器需要能出网（访问回调服务）才有用；完全隔离的部署可设 ARTEX_OOB_DISABLED=1。
+      ARTEX_OOB_BASE_URL: ${ARTEX_OOB_BASE_URL:-}
+      ARTEX_OOB_DISABLED: ${ARTEX_OOB_DISABLED:-}
     ports:
-      - "8787:8787"
-      - "127.0.0.1:8788:8788"
+      # 宿主机端口由 .env 控制（install.sh 会问你要哪个端口）；容器内固定 8787/8788，
+      # 所以换端口不需要重建镜像。代理只绑本机回环，故意不对外暴露。
+      - "${ARTEX_PORT:-8787}:8787"
+      - "127.0.0.1:${ARTEX_PROXY_PORT:-8788}:8788"
     volumes:
       # 把数据目录（含 jwt.key、SQLite 等）绑定到项目根目录的 data/，
       # 方便在宿主机直接查看/备份，容器重建也不丢。

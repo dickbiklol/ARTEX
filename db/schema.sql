@@ -1384,3 +1384,104 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_batch
     ON notification_deliveries(batch_id) WHERE batch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
     ON notification_deliveries(channel_id, id DESC);
+
+-- =====================================================================
+-- M. 漏洞类覆盖台账（coverage_ledger）
+-- =====================================================================
+-- 为什么需要它：原来的覆盖度只到【资产】粒度——assets 里任意一条被 fact 锚过的资产
+-- 就算"已测"，于是"端口关闭"这一条事实就能让整个资产看起来测完了，而实际上 SQLi/
+-- XSS/越权/上传…一个都没打。这是本平台漏报漏洞的结构性原因。
+--
+-- 台账把"覆盖"拆成 (task, asset, param, vulnclass) 单元格，状态由 worker 显式写回，
+-- 于是规划者可以问"还有哪些格子没打"，而不是靠 LLM 猜"我是不是漏了什么"。
+--
+--   state: untested 未打 / tried_negative 打过没信号(必须带 attempts) /
+--          suspected 有线索未验证 / confirmed 已确认(必须带 finding) / na 不适用
+--
+-- vulnclass 取值见 db/coverage_catalog.go 与 skills/vulnclass-coverage/SKILL.md。
+CREATE TABLE IF NOT EXISTS coverage_ledger (
+    id              BIGSERIAL PRIMARY KEY,
+    task_id         BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    asset_id        BIGINT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    -- 空串 = 资产级（非 endpoint，或 endpoint 未枚举出参数）
+    param           TEXT NOT NULL DEFAULT '',
+    vulnclass       TEXT NOT NULL,
+    state           TEXT NOT NULL DEFAULT 'untested',
+    -- 彼此不同的打法次数（见 worker 提示的 probe_attempts 定义）。
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    last_intent_id  BIGINT,
+    last_fact_id    BIGINT,
+    finding_node_id BIGINT,
+    note            TEXT NOT NULL DEFAULT '',
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_cov_state CHECK (state IN ('untested','tried_negative','suspected','confirmed','na'))
+);
+-- 一个单元格只存一行：重复 expand / 重复 mark 都是 upsert 而不是堆行。
+DROP INDEX IF EXISTS uq_coverage_cell;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_coverage_cell
+    ON coverage_ledger(task_id, asset_id, param, vulnclass);
+-- 规划者每轮取缺口：按任务 + 状态。
+CREATE INDEX IF NOT EXISTS idx_cov_task_state
+    ON coverage_ledger(task_id, state, vulnclass);
+CREATE INDEX IF NOT EXISTS idx_cov_task_asset
+    ON coverage_ledger(task_id, asset_id);
+DROP TRIGGER IF EXISTS trg_cov_upd ON coverage_ledger;
+CREATE TRIGGER trg_cov_upd BEFORE UPDATE ON coverage_ledger
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- §DISCOVERY 目标发现
+-- 操作者给一句意图（“找 100 个跟 X 相关的站”），平台自己产关键词、跑搜索、抓域名、
+-- 过滤后落到 discovery_candidates 等人工审批；只有 approved 的候选才会在 /start 时
+-- 变成任务范围。
+-- 关键边界：候选【永远不等于授权】——task_scope 才是授权边界，所以起点必须先有人点过
+-- approve，不存在“搜索到就直接开扫”的路径。
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS discovery_runs (
+    id         BIGSERIAL PRIMARY KEY,
+    query      TEXT NOT NULL,
+    -- 运行参数：target_count / shape(single|per_domain|batches) / batch_size /
+    -- exclude / liveness / min_relevance
+    params     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- 阶段：queued → keywords → searching → filtering → ready → started（失败 failed）
+    status     TEXT NOT NULL DEFAULT 'queued',
+    -- LLM 产出的实际查询词（页面展示「它到底搜了什么」，便于判断结果质量）
+    keywords   JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- 各阶段计数 + 中止原因，页面直接展示
+    stats      JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error      TEXT  NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_discovery_run_status CHECK (status IN
+        ('queued','keywords','searching','filtering','ready','started','failed'))
+);
+CREATE INDEX IF NOT EXISTS idx_discovery_runs_created ON discovery_runs(created_at DESC);
+DROP TRIGGER IF EXISTS trg_discovery_runs_upd ON discovery_runs;
+CREATE TRIGGER trg_discovery_runs_upd BEFORE UPDATE ON discovery_runs
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS discovery_candidates (
+    id           BIGSERIAL PRIMARY KEY,
+    run_id       BIGINT NOT NULL REFERENCES discovery_runs(id) ON DELETE CASCADE,
+    host         TEXT NOT NULL,
+    root_domain  TEXT NOT NULL DEFAULT '',
+    source_query TEXT NOT NULL DEFAULT '',
+    source_url   TEXT NOT NULL DEFAULT '',
+    title        TEXT NOT NULL DEFAULT '',
+    snippet      TEXT NOT NULL DEFAULT '',
+    -- LLM 相关性评分 0-100；0 = 未评分（关闭评分时）
+    relevance    INTEGER NOT NULL DEFAULT 0,
+    -- pending → approved/rejected（人工）；skipped（被过滤）；used（已进入任务）
+    status       TEXT NOT NULL DEFAULT 'pending',
+    skip_reason  TEXT NOT NULL DEFAULT '',
+    asset_id     BIGINT,
+    task_id      BIGINT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_discovery_cand_status CHECK (status IN
+        ('pending','approved','rejected','skipped','used'))
+);
+-- 一次运行里同主机只留一行：多个查询词命中同一站是常态。
+CREATE UNIQUE INDEX IF NOT EXISTS uq_discovery_cand_host ON discovery_candidates(run_id, host);
+CREATE INDEX IF NOT EXISTS idx_discovery_cand_run ON discovery_candidates(run_id, status);
+-- 审批后按 host 反查历史，避免重复入任务。
+CREATE INDEX IF NOT EXISTS idx_discovery_cand_host_only ON discovery_candidates(host);

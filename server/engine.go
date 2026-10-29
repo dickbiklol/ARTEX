@@ -1234,8 +1234,24 @@ func sleepCtx(ctx context.Context, d time.Duration) (done bool) {
 	}
 }
 
+// claimClaimWindow is how many open intents a worker considers per claim attempt.
+//
+// It used to be 20, and Frontier ordered globally by priority/id — so once 20 intents
+// were queued (one planner round can emit 8, batch_sweep up to 200), everything past
+// position 20 was never even offered to a worker. That is the "some intents never
+// run" half of the queue complaint. 64 keeps deep intents reachable.
+const claimClaimWindow = 64
+
 func (e *Engine) claimNext(t *Task, name string) *db.Node {
-	fr, _ := t.Store.Frontier(20)
+	// FrontierBalanced interleaves by asset instead of strictly by creation order, so
+	// five workers spread across five targets rather than draining one target's
+	// backlog first. FIFO order is preserved inside a single asset.
+	fr, err := t.Store.FrontierBalanced(claimClaimWindow)
+	if err != nil || len(fr) == 0 {
+		// Fall back to the plain frontier: a balancing query must never be the reason a
+		// ready worker sits idle.
+		fr, _ = t.Store.Frontier(claimClaimWindow)
+	}
 	for _, in := range fr {
 		if ok, _ := t.Store.ClaimIntent(in.ID, name); ok {
 			return in

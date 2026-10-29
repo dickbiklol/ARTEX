@@ -15,7 +15,13 @@ var PromptOverride func(agentKey string) (string, bool)
 // Prompt-variable structs — fields mirror each agent's catalog (docs §5a) so a
 // user template referencing a catalog variable renders; referencing anything else
 // fails template execution and falls back to the built-in default.
-type PlannerVars struct{ Goal, Scope, AssetSummary, DataDir, Now string }
+type PlannerVars struct {
+	Goal, Scope, AssetSummary, DataDir, Now string
+	// IntentBatchMax is how many intents the planner may emit in one add_intent
+	// batch. It used to be a hard-coded "最多 4 个" in the prompt body, which capped
+	// breadth regardless of how many workers were idle.
+	IntentBatchMax int
+}
 type WorkerVars struct{ ProxyAddr, WorkerName, DataDir, Now string }
 type MainVars struct{ Goal, AssetSummary, FindingsSummary, DataDir, Now string }
 type GoalsVars struct{ EngagementDescription, DataDir, Now string }

@@ -323,6 +323,40 @@ ON CONFLICT DO NOTHING`, r.kind, r.pattern, r.note); err != nil {
 // that MCP is enabled/configured.
 var builtinSkillVisibility = map[string][]string{
 	"api-recon": {"auto", "pentest", "worker"},
+
+	// 方法论层（移植自 CyberStrikeAI，已改写为本平台工具词汇）。
+	// 关键点：planner 过去【一个 skill 都看不到】——它只能靠 LLM 先验凭空想方向，
+	// 这就是"意图浅、覆盖窄"的根因之一。下面这几条刻意绑给 planner：
+	//   pentest-verification    → 判断"这条否定能不能采信"
+	//   vulnclass-coverage      → 知道还有哪些漏洞类没打
+	//   attack-surface-recon    → 知道还缺哪一面没测绘
+	//   component-vuln-intel    → 知道拿到指纹后该先搜再打
+	//   capability-primitive-search → 知道怎么把低危拼成链
+	//   zero-day-discovery      → 情报打不动时还有哪些深挖路径
+	//   pentest-blackboard      → 派意图时能说清要写什么回图
+	"pentest-verification":        {"worker", "planner", "pentest", "mainagent"},
+	"pentest-blackboard":          {"worker", "mainagent", "pentest"},
+	"vulnclass-coverage":          {"planner", "worker", "pentest"},
+	"web-attack-methods":          {"worker", "pentest"},
+	"attack-surface-recon":        {"planner", "worker", "pentest", "auto"},
+	"component-vuln-intel":        {"planner", "worker", "pentest"},
+	"capability-primitive-search": {"planner", "worker", "pentest"},
+	"zero-day-discovery":          {"planner", "worker", "pentest"},
+	"pentest-output-standards":    {"mainagent", "pentest", "auto"},
+	// 路由/边界类，planner 也需要：它要能判断"这一类该走哪本手册"才派得准。
+	"pentest-agent-os":             {"worker", "planner", "pentest", "auto"},
+	"redteam-opsec":                {"worker", "planner", "pentest"},
+	"specialized-attack-playbooks": {"worker", "planner", "pentest"},
+	"source-code-hunting":          {"worker", "planner", "pentest"},
+	// 领域手册：默认只给执行侧，planner 通过 vulnclass-coverage + 上面几本路由即可。
+	"active-directory-attack":    {"worker", "pentest"},
+	"cloud-attack-methods":       {"worker", "pentest"},
+	"ai-llm-app-attack":          {"worker", "pentest"},
+	"blockchain-contract-attack": {"worker", "pentest"},
+	"binary-mobile-reversing":    {"worker", "pentest"},
+	"wireless-hardware-attack":   {"worker", "pentest"},
+	"initial-access-phishing":    {"worker", "pentest"},
+	"post-exploitation":          {"worker", "pentest"},
 }
 
 // seedBuiltinSkillVisibility binds the shipped built-in skills to their default

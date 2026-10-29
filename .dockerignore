@@ -14,3 +14,12 @@ bench/.env
 bench/scheduler.py
 bench/entrypoint_v2.sh
 bench/seed_v2.sh
+# 打包产物 / 截图不进构建上下文：它们每变一次都会让 `COPY . ./` 失效，
+# 从而把 5 分钟的 go build 整个重跑一遍（package.sh 每跑一次就多一个 7MB 的包）。
+dist
+*.tar.gz
+*.zip
+screenshots
+# 本地密钥与配置绝不进上下文（compose 读 .env 用的是宿主机文件，不依赖构建上下文）
+.env
+config.json

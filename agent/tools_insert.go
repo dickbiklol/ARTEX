@@ -653,10 +653,20 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 		// search_all_worker_traces：不必先知道 intent_id，按关键字全局捞命中步骤；
 		// get_worker_trace：锁定某条 work 后列步骤/就地搜/取完整内容。
 		t.searchAllWorkerTraces(), t.getWorkerTrace(),
+		// list_facts：worker 开工前先查"别人是不是已经探过这个点/这条链路"，
+		// 避免在别的 worker 已有结论的方向上重复劳动，也方便把本意图的结论
+		// 挂到已有的否定结论上（否定结论必须看得见才谈得上复核或推翻）。
+		// 只读、分页；写回仍只有 record_fact / report_finding / insert_assets。
+		t.listFacts(),
 		// node_detail：worker 拿到 intent_id/节点 id 后可查该节点完整详情（配合上面的回看）。
 		t.nodeDetail(),
-		// 以下工具仍【不给】worker，只留给 planner/main（读上下文、跨 work 复盘是规划职责，
-		// worker 只做单条意图的执行与写回）：list_facts / list_companies / list_worker_traces。
+		// mark_coverage：把"测了哪个资产的哪个参数的哪一类、结果如何"写回覆盖台账。
+		// 不写这一笔，规划者下一轮就不知道这条方向已经动过，会重复派工。
+		t.markCoverage(),		// OOB：无回显漏洞（盲 SSRF/XXE/SQLi/RCE/JNDI）的唯一确认手段。
+		// 没有它，这一类只能永远停在 inferred。
+		oobRequest(), oobPoll(),		// 以下工具仍【不给】worker，只留给 planner/main（读上下文、跨 work 复盘是规划职责，
+		// worker 只做单条意图的执行与写回）：list_companies / list_worker_traces /
+		// graph_overview / list_untested_assets / list_coverage_gaps。
 	}
 }
 
@@ -678,6 +688,8 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
+		// 覆盖台账：读缺口 + 人工补写状态（人可以直接说"这个参数我验证过了"）。
+		t.listCoverageGaps(), t.markCoverage(),
 	}
 }
 

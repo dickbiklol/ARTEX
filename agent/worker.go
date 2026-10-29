@@ -234,15 +234,21 @@ const workerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 2. 初次受阻（payload 被过滤 / 404 / 注入无回显）不代表已探透——把本意图的所有绕过手段走完再输出结论；
 3. 只在授权范围内操作。系统提示顶部若附【操作约束】，那是最高优先级红线：每条命令/探测执行前先自检，违反即不做（哪怕它落在你领到的意图里）。
 
-**边发现边写回**（写进图才算数，脑子/文字里的不算；每得一个结果立刻写，别攒到最后被步数耗尽丢掉）。三种写回，别串图：
+**边发现边写回**（写进图才算数，脑子/文字里的不算；每得一个结果立刻写，别攒到最后被步数耗尽丢掉）。四种写回，别串图：
 - **新资产/资源 → insert_assets（资产图）**：子域 / service / endpoint / 指纹 / 凭据 等一切资产【本身】。**这里只登记资产；探索结论/判断不写这里，用 record_fact。**
-- **探索结论/事实 → record_fact（探索图，传 intent_id）**：都用它。**多个观察汇总成【一条】事实**（summary 一句总结 + detail写对总结的拓展，依靠真实的执行过程），不要一个属性一条、一意图通常只一条，拆碎会让图谱无限膨胀——**默认就写一条，能并进 detail 的都并进去**；仅当确有【彼此完全独立、无法归并】的结论时才用 facts 数组分条，这是极少数例外，不是常规。**只写增量**：只记这次【新得到】的，别把已有事实换措辞重记（只印证已有、无新增就不必记）。**只写真实看到的**：给 evidence（一行：命令+最能证明的一两行输出，简洁，细节在 detail）、标 confidence（observed=直接看到 / inferred=据现象推断）。
+- **探索结论/事实 → record_fact（探索图，传 intent_id）**：都用它。**多个观察汇总成【一条】事实**（summary 一句总结 + detail写对总结的拓展，依靠真实的执行过程），不要一个属性一条、一意图通常只一条，拆碎会让图谱无限膨胀——**默认就写一条，能并进 detail 的都并进去**；仅当确有【彼此完全独立、无法归并】的结论时才用 facts 数组分条，这是极少数例外，不是常规。**只写增量**：只记这次【新得到】的，别把已有事实换措辞重记（只印证已有、无新增就不必记）。**只写真实看到的**：给 evidence（一行：命令+最能证明的一两行输出，简洁，细节在 detail）、标 confidence（observed=直接看到 / inferred=据现象推断）。**写否定结论（不可注入/端口关闭/无入口/无越权）时必填 probe_attempts**：你已经试过多少种【彼此不同】的打法（不同 payload/编码/参数位置/HTTP 方法/传输方式各算一次，同一请求重发不算），并在 detail 里列出试过哪几种。**只试过 1–2 种就写"不可注入"，等于把一条没探完的路交给规划者封死——这是本平台漏洞的头号原因**；试不够就继续试，别急着下结论。
 - **确认漏洞 → report_finding（探索图，含 PoC，传 intent_id）**：**只有你本次真实触发过、拿到可复现证据（请求/响应或命令输出）才用**。严禁把"版本/指纹匹配到 CVE""参数看起来可注入""外部漏洞库/更新日志/代码 diff 推断"当已确认，也不要用查 CVE 库或对比补丁版本替代实际触发。触发不了但有嫌疑 → 用 record_fact 记一条 inferred 事实（嫌疑点+为何未触发）交规划者，别硬记成 finding。
+- **覆盖台账 → mark_coverage（传 asset_id）**：本意图收尾前，把"测了哪个资产的哪个参数、打的是哪一类、试了几种彼此不同的打法、结果如何"写进台账。**不写这一笔，规划者下一轮就不知道这条方向动过——轻则派人重做一遍，重则把"只试了一种"当成"已排除"，那正是本平台漏报漏洞的头号原因**。vulnclass 必须用标准 id（sqli / idor / ssrf / file_upload …）；否定结论 attempts 如实填；确认了漏洞就带 finding_node_id 标 confirmed。
+- **拿到新能力要打 capability 标记**：当你拿到凭据 / token / 内网可达路径 / 上传点 / 代码执行 / 管理员会话时，在那条 fact 上加 capability（如 ["creds","internal_route"]）并传 asset_ids。系统会把这些资产上「之前判为不可行」的覆盖格子重新打开——旧结论在新能力下往往已经不成立，这是整条链突破的关键一步，别只写进 detail 就完事。
+
+**无回显漏洞必须用带外回调确认（oob_request / oob_poll）**：盲 SSRF、盲 XXE、盲 SQLi、盲目命令注入、Log4j/JNDI、后端抓取型盲 XSS——这一类攻击连接上**永远什么都没有**，不能因为“没回显”就判不存在，那是漏报最大的一类。做法固定三步：先用 oob_request 拿 {token, host} → 把 host 拼进 payload **实际发送** → 再用 oob_poll(token, wait_seconds) 查记录。
+- count>0 → 漏洞已确认，report_finding，evidence 里**同时**写 payload 和命中的 query/remote（只写“收到回连”无法归因到具体 payload）。
+- count=0 → **不是否定结论**。可能被 WAF 拦、目标不出网、DNS 走内网解析器、或还没触发。换编码/换注入位置/换协议，累计 3 种以上不同打法都无回调，才可写 tried_negative 并在 detail 列出试过的 payload。
+- oob_request 报不可用 = 本机出网受限，**与目标无关**：照常把该方向记为 inferred 并在 detail 注明“带外回调不可用，未验证”，别默默丢掉这条线。
+- 只证明「目标发起了外连」，不证明执行细节：标题写“服务端请求伪造（盲）”，不要写“远程代码执行”。
 
 
-完成本意图后用一句话总结你做了什么、写回了哪些事实。`
-
-// workerTrafficBlock is 段 [B]: the traffic-tool note, code-injected only when
+完成本意图后用一句话总结你做了什么、写回了哪些事实。`// workerTrafficBlock is 段 [B]: the traffic-tool note, code-injected only when
 // traffic capture (recording) is on — i.e. the traffic_* tools actually exist.
 // Gated on recording, NOT on the egress proxy: a global proxy with capture off
 // routes traffic but records nothing, so the tools would not be there. Not stored,
@@ -314,7 +320,29 @@ func intentAssetIDs(intent *db.Node) []int64 {
 }
 
 func renderIntentTask(intent *db.Node) string {
-	return fmt.Sprintf("\n\n【你领到的意图（本次唯一任务：只做这一条、只产生事实、做完即停）】：\n%s\n意图 id: %d（写回 record_fact / report_finding 时传它）", string(intent.Payload), intent.ID)
+	head := fmt.Sprintf("\n\n【你领到的意图（本次唯一任务：只做这一条、只产生事实、做完即停）】：\n%s\n意图 id: %d（写回 record_fact / report_finding / mark_coverage 时传它）",
+		string(intent.Payload), intent.ID)
+	// vulnclass/specialist are optional tags the planner sets on the intent. They do
+	// not change what the worker is allowed to do — only which playbook it opens
+	// first, and which ledger cell it should write back when it finishes.
+	var p struct {
+		VulnClass  string `json:"vulnclass"`
+		Specialist string `json:"specialist"`
+	}
+	_ = json.Unmarshal(intent.Payload, &p)
+
+	var b strings.Builder
+	b.WriteString(head)
+	if vc := strings.TrimSpace(p.VulnClass); vc != "" {
+		fmt.Fprintf(&b, "\n\n【本意图的漏洞类】%s —— 先打开 skill vulnclass-coverage 确认它，再按 web-attack-methods 里对应小节的「最少试探」清单逐条走完；至少 %d 种彼此不同的打法才算探够。收尾时用 mark_coverage 把这一类写回台账。",
+			vc, minProbeAttemptsForNegative)
+	}
+	if sp := normalizeSpecialist(p.Specialist); sp != "" {
+		if pb := specialistPlaybooks[sp]; pb != "" {
+			fmt.Fprintf(&b, "\n【本意图的方法域】%s —— 优先用 skill 打开：%s。", sp, pb)
+		}
+	}
+	return b.String()
 }
 
 // renderWorkerGraphOverview folds the global situational snapshot into the worker's
@@ -322,11 +350,21 @@ func renderIntentTask(intent *db.Node) string {
 // must NOT widen the worker's job — it still does only its assigned intent. Its sole
 // purpose is letting the worker read context (existing facts/assets/hints)
 // so it avoids redundant work and doesn't re-derive what others already found.
-func renderWorkerGraphOverview(data map[string]any) string {
+//
+// gaps is the coverage-ledger slice for THIS intent's target assets only. The global
+// ledger was deliberately withheld from workers (it invites scope creep), but a worker
+// testing /api/user genuinely needs to know that "sqli has been tried once on `uid`"
+// or it will either redo it or declare it clean on one attempt.
+func renderWorkerGraphOverview(data map[string]any, gaps []db.CoverageGap) string {
 	// coverage 是给规划者判断「哪类测得少 / 要不要扩范围」的信号，与 worker「只做领到的
 	// 那条意图、别追未覆盖的点」的职责边界相悖 → 从 worker 视图里剔除。data 是本次 worker
 	// 专属的新 map，删键不影响 planner。
 	delete(data, "coverage")
+	// asset_focus / untouched_assets 同理：那是规划者的「该给谁派工」清单。发给 worker 只会
+	// 诱导它越界去测别的资产，而它应当只做领到的那一条。worker 自己的缺口清单由
+	// renderWorkerCoverageGaps(gaps) 按它自己的资产单独给出。
+	delete(data, "asset_focus")
+	delete(data, "untouched_assets")
 	b, err := json.Marshal(data)
 	if err != nil {
 		return "" // fall back silently: the worker just won't have the global context
@@ -334,7 +372,69 @@ func renderWorkerGraphOverview(data map[string]any) string {
 	return "\n\n【全局探索态势（只读，帮你把自己这条意图放进大局看）】：\n" +
 		"下面是整个任务当前的探索概况。用途有两个：一是知道别人已发现什么，别重复；二是让你探自己这条意图时，能联想到它和全局的关系。\n" +
 		"**发散是好事**：探本意图时尽管深想、多联想。唯一的界线是——别真的动手去执行别的意图（那是别的 worker 的事，由规划者调度）。但凡你联想到有价值的线索（跨资产的联动、疑似另一条利用链的入口、全局层面的可疑点），**务必写进 fact 交规划者**——这是你重要的产出，不是可有可无。宁可多报一条让规划者判断，也别自己咽下去。\n" +
-		string(b)
+		string(b) +
+		renderWorkerCoverageGaps(gaps)
+}
+
+// renderWorkerCoverageGaps renders the local coverage slice. Kept separate so the
+// boundary framing is explicit: these gaps are for the worker's OWN assets, and the
+// instruction is "do your intent better", never "go chase the empty cells".
+func renderWorkerCoverageGaps(gaps []db.CoverageGap) string {
+	if len(gaps) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n【本意图目标资产的覆盖缺口（只读，用来把这条意图打透）】：\n")
+	b.WriteString("下面这些是你这条意图所针对的资产上、**还没打透**的漏洞类。用途只有一个：提醒你别在新手位上重复劳动，也别只用一种打法就下结论。\n")
+	cur := int64(-1)
+	for _, g := range gaps {
+		if g.AssetID != cur {
+			cur = g.AssetID
+			fmt.Fprintf(&b, "\n- 资产 %d（%s，%s）：\n", g.AssetID, g.AssetType, g.Label)
+		}
+		p := ""
+		if g.Param != "" {
+			p = " 参数 " + g.Param
+		}
+		switch g.State {
+		case db.CovTriedNegative:
+			fmt.Fprintf(&b, "    · %s%s：试过 %d 次，**不足 %d 次 = 还没探够**，先补齐手段再说否定\n",
+				g.VulnClass, p, g.Attempts, db.CoverageAttemptsBar)
+		case db.CovSuspected:
+			fmt.Fprintf(&b, "    · %s%s：有线索但没验证\n", g.VulnClass, p)
+		default:
+			fmt.Fprintf(&b, "    · %s%s：未测\n", g.VulnClass, p)
+		}
+	}
+	b.WriteString("\n**边界不变**：只做你领到的那条意图。做完记得用 mark_coverage 把结果写回台账" +
+		"（测了哪个参数、哪一类、几次打法），否则规划者下一轮还会把同样的活再派一遍。\n")
+	return b.String()
+}
+
+// workerCoverageGaps fetches the ledger gaps for the intent's own target assets.
+// Scoped on purpose: the worker must not be handed the task-wide gap list (that
+// belongs to the planner and would pull the worker off its intent), but it must
+// know what has already been tried on the parameters it is about to touch.
+//
+// Best-effort: a coverage lookup failure must never stop a run — the worker still
+// has its intent, its tools and the global overview.
+func workerCoverageGaps(as *db.AssetStore, taskID int64, intent *db.Node, coverageEnabled bool) []db.CoverageGap {
+	if as == nil || taskID <= 0 || !coverageEnabled || intent == nil {
+		return nil
+	}
+	const maxGaps = 24
+	var out []db.CoverageGap
+	for _, assetID := range intentAssetIDs(intent) {
+		gaps, _, err := as.ListCoverageGaps(taskID, "", assetID, maxGaps-len(out))
+		if err != nil {
+			return out
+		}
+		out = append(out, gaps...)
+		if len(out) >= maxGaps {
+			break
+		}
+	}
+	return out
 }
 
 // Execute runs one intent. hooks (the per-task Guard) gates every tool call; may
@@ -392,7 +492,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// The run-wide intent is not the current tool action. Do not forward it or
 	// inherit a parent run's background into the action reviewer.
 	ctx = intercept.WithReviewContext(ctx, runDir, intercept.ReviewBackground{})
-	overview := renderWorkerGraphOverview(tsx.graphOverviewData())
+	overview := renderWorkerGraphOverview(tsx.graphOverviewData(), workerCoverageGaps(as, taskID, intent, coverageEnabled))
 	sysBody := workerSystem(w.proxyAddr, w.proxyCACert, w.workDir, runDir)
 	if w.wantConstraints() {
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,worker 执行时严格遵守

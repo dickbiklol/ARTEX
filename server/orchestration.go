@@ -47,11 +47,11 @@ func (s *Server) hostTools() ([]actool.CoreTool, map[string][]string) {
 		return tools, nil
 	}
 	tools = append(tools, custom...)
-	// deferred custom tools → name -> its bound agent keys. ToolAugment turns a
-	// name into a deferred entry only for agents it's actually bound to (so we don't
-	// advertise a tool the per-agent binding will drop from the callable set).
+	// deferred custom tools (AND deferred built-in recipes) → name -> bound agents.
+	// ToolAugment turns a name into a deferred entry only for agents it's actually
+	// bound to (so we don't advertise a tool the per-agent binding will drop).
 	deferred := map[string][]string{}
-	rows, _ := s.m.pg.ListCustomTools()
+	rows, _ := s.m.pg.ListExecutableTools()
 	for _, t := range rows {
 		if t.Deferred && t.Enabled {
 			deferred[t.Key] = t.Agents
@@ -623,14 +623,15 @@ func (s *Server) reseedMainAgentPrompt() {
 	log.Printf("[prompts] mainagent 提示词已追加新默认版本(加入目标达成后反问建目标,一次性)")
 }
 
-// reseedPlannerPrompt 把 planner 提示词刷成【当前代码默认】——默认正文做了精简重构,并把「克制」降级为
-// 仅去重、新增「深度优先于覆盖度」「硬底线:目标未达成且无在跑意图必须产出」、给否定结论复核加上界。
-// 每次默认有实质变更就 bump 下面的 flag(当前 v2)让存量旧库再刷一次。SeedPromptIfEmpty 首插入only,旧库已有版本收不到,故用版本管理
-// 【追加一个新版本】并切过去(ResetPromptToDefault),旧版本仍保留在历史里,用户若自定义过可从版本记录
-// 找回。settings flag 守卫 → 只做一次。全新库无需处理(SeedPromptIfEmpty 已 seed 最新默认)。与
-// reseedGoalsPrompt 完全同构。
+// reseedPlannerPrompt 把 planner 提示词刷成【当前代码默认】——默认正文把「否定结论复核一次为上限」
+// 换成可采信的三条证据门槛（observed + evidence + probe_attempts≥3），并把否定结论改为「出现材料性
+// 新事实即可重开」，同时把每轮意图上限从硬编码 4 改为可配的 {{.IntentBatchMax}}。每次默认有实质变更
+// 就 bump 下面的 flag(当前 v3)让存量旧库再刷一次。SeedPromptIfEmpty 首插入only,旧库已有版本收不到,
+// 故用版本管理【追加一个新版本】并切过去(ResetPromptToDefault),旧版本仍保留在历史里,用户若自定义过
+// 可从版本记录找回。settings flag 守卫 → 只做一次。全新库无需处理(SeedPromptIfEmpty 已 seed 最新默认)。
+// 与 reseedGoalsPrompt 完全同构。
 func (s *Server) reseedPlannerPrompt() {
-	const flag = "planner_prompt_compact_realistic_v2"
+	const flag = "planner_prompt_asset_fairness_v6"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}
@@ -654,13 +655,13 @@ func (s *Server) reseedPlannerPrompt() {
 	log.Printf("[prompts] planner 提示词已追加新默认版本(精简重构+克制降级去重+深度优先+否定复核上界,一次性)")
 }
 
-// reseedWorkerPrompt 把 worker 提示词刷成【当前代码默认】——默认正文 record_fact 段删掉了「否定类结论
-// 写观察+试探性读法」整句、并把 confidence(observed/inferred)与「是否穷尽本意图手段」解耦(这些易误导规划者),
-// 同时把 facts 数组分条收紧为「彼此完全独立、无法归并」的极少数例外。bump flag 至 v3 让存量旧库再刷一次。
-// SeedPromptIfEmpty 首插入only,旧库已有版本收不到,故用版本管理【追加一个新版本】并切过去,旧版本仍保留在历史里可找回。
+// reseedWorkerPrompt 把 worker 提示词刷成【当前代码默认】——默认正文在 record_fact 段新增
+// 「否定结论必填 probe_attempts（彼此不同的打法计数）」硬要求，并点明"只试 1–2 种就写不可注入"
+// 是本平台漏报漏洞的头号原因。bump flag 至 v5 让存量旧库再刷一次。SeedPromptIfEmpty 首插入only,
+// 旧库已有版本收不到,故用版本管理【追加一个新版本】并切过去,旧版本仍保留在历史里可找回。
 // settings flag 守卫 → 只做一次。全新库无需处理。与 reseedGoalsPrompt 完全同构。
 func (s *Server) reseedWorkerPrompt() {
-	const flag = "worker_prompt_compact_v4"
+	const flag = "worker_prompt_coverage_ledger_v7"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}

@@ -28,9 +28,13 @@ import type {
   ConvTokenSummary,
   CoverageAssetRefs,
   CoverageGraphData,
+  CoverageLedgerData,
   DailyTokenBucket,
   DeleteTaskOptions,
   DeleteTaskResult,
+  DiscoveryCandidate,
+  DiscoveryRun,
+  DiscoveryRunDetail,
   Edge,
   EvidenceBodyPreview,
   ExplorationNodePage,
@@ -378,6 +382,16 @@ export const api = {
     }>(`/tasks/${id}/coverage`),
   // 资产覆盖图：范围内全部资产 + 连接用的根域名/公司节点，含 tested/in_scope。
   taskCoverageGraph: (id: string) => get<CoverageGraphData>(`/tasks/${id}/coverage-graph`),
+  // 漏洞类覆盖台账（vulnclass × asset）：回答「哪一类还没在哪个资产上打过」。
+  // 与 /coverage 的资产级视角互补——资产全测过也可能某一类从未试过。
+  taskCoverageLedger: (id: string, params?: { vulnclass?: string; assetId?: number; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.vulnclass) qs.set("vulnclass", params.vulnclass);
+    if (params?.assetId) qs.set("asset_id", String(params.assetId));
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return get<CoverageLedgerData>(`/tasks/${id}/coverage-ledger${suffix}`);
+  },
   // 全局 llm_usage 聚合（仪表盘新版 token 视图）：按 profile 总量 + 按天分桶。
   usageStats: (days = 365) => get<UsageStats>(`/tokens/usage?days=${days}`),
   // ---- 目标管理（总览）----
@@ -1163,6 +1177,64 @@ export const api = {
     if (!r.ok) throw new Error(body?.error || `上传失败(${r.status})`);
     return body;
   },
+  // importSkill 从 Markdown 导入一个 skill（不是 .zip）。后端会补齐 frontmatter，
+  // 并把文档里引用的工具/vulnclass 与平台实际能力比对后返回 warnings。
+  // learn=true 时先用当前模型把文档重写成 ARTEX 词汇（工具名、vulnclass id）再落盘。
+  importSkill: (s: {
+    markdown: string;
+    name?: string;
+    description?: string;
+    learn?: boolean;
+    overwrite?: boolean;
+  }) =>
+    post<{ name: string; description: string; agents: string[]; warnings: string[]; learned: boolean }>(
+      "/skills/import",
+      s,
+    ),
+
+  // ---- 目标发现（discovery）----
+  // 流程：建 run（AI 自己产关键词并搜索）→ 看候选 → 审批 → /start 建任务。
+  // 候选不等于授权：只有 approved 的候选会被 /start 变成任务范围。
+  discoveryRuns: (limit?: number) =>
+    get<{ runs: DiscoveryRun[] }>(`/discovery/runs${limit ? `?limit=${limit}` : ""}`).then((r) =>
+      arr(r.runs),
+    ),
+  discoveryRun: (id: number) => get<DiscoveryRunDetail>(`/discovery/runs/${id}`),
+  discoveryCreateRun: (input: {
+    query: string;
+    target_count?: number;
+    shape?: "single" | "per_domain" | "batches";
+    batch_size?: number;
+    exclude?: string[];
+    liveness?: boolean;
+    min_relevance?: number;
+    queries?: number;
+    max_rounds?: number;
+    test_goal?: string;
+  }) => post<DiscoveryRun>("/discovery/runs", input),
+  discoveryCandidates: (
+    id: number,
+    params?: { status?: string; limit?: number; offset?: number },
+  ) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set("status", params.status);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.offset) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return get<{ candidates: DiscoveryCandidate[]; total: number }>(
+      `/discovery/runs/${id}/candidates${suffix}`,
+    ).then((r) => ({ candidates: arr(r.candidates), total: r.total }));
+  },
+  discoverySetCandidate: (id: number, status: "approved" | "rejected" | "pending") =>
+    patch<{ ok: boolean }>(`/discovery/candidates/${id}`, { status }),
+  discoveryBulkStatus: (runId: number, ids: number[], status: "approved" | "rejected" | "pending") =>
+    post<{ updated: number }>(`/discovery/runs/${runId}/candidates/status`, { ids, status }),
+  discoveryStart: (runId: number, body?: { shape?: string; batch_size?: number; goal?: string; name?: string }) =>
+    post<{ tasks: { task_id: string; hosts: string[] }[]; created: number; failed: number }>(
+      `/discovery/runs/${runId}/start`,
+      body ?? {},
+    ),
+  discoveryDeleteRun: (id: number) => del<{ deleted: number }>(`/discovery/runs/${id}`),
   deleteSkill: (name: string) => del<{ deleted: string }>(`/skills/${name}`),
   updateSkillMeta: (
     name: string,
