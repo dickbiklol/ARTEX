@@ -1114,7 +1114,7 @@ func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
 	if priority == 0 {
 		priority = 5
 	}
-	anchors := pidList(it.AssetIDs)	// 资产拦截：意图绑定的资产若命中系统资产拦截规则，则禁止下发该意图。
+	anchors := pidList(it.AssetIDs) // 资产拦截：意图绑定的资产若命中系统资产拦截规则，则禁止下发该意图。
 	if t.as != nil && len(anchors) > 0 {
 		hits, err := t.as.CheckAssetsIntercept(t.taskID, anchors)
 		if err != nil {

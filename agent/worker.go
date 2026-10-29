@@ -248,7 +248,7 @@ const workerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 - 只证明「目标发起了外连」，不证明执行细节：标题写“服务端请求伪造（盲）”，不要写“远程代码执行”。
 
 
-完成本意图后用一句话总结你做了什么、写回了哪些事实。`// workerTrafficBlock is 段 [B]: the traffic-tool note, code-injected only when
+完成本意图后用一句话总结你做了什么、写回了哪些事实。` // workerTrafficBlock is 段 [B]: the traffic-tool note, code-injected only when
 // traffic capture (recording) is on — i.e. the traffic_* tools actually exist.
 // Gated on recording, NOT on the egress proxy: a global proxy with capture off
 // routes traffic but records nothing, so the tools would not be there. Not stored,

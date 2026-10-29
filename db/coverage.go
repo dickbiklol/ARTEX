@@ -48,10 +48,10 @@ type CoverageClassStat struct {
 
 // CoverageSummary is the whole-task rollup.
 type CoverageSummary struct {
-	Cells     int                `json:"cells"`
-	Touched   int                `json:"touched"`
-	Confirmed int                `json:"confirmed"`
-	Pct       *float64           `json:"pct"`
+	Cells     int                 `json:"cells"`
+	Touched   int                 `json:"touched"`
+	Confirmed int                 `json:"confirmed"`
+	Pct       *float64            `json:"pct"`
 	ByClass   []CoverageClassStat `json:"by_class,omitempty"`
 }
 

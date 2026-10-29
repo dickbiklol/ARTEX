@@ -122,9 +122,9 @@ func (t *ToolSet) assetFocus(limit int) ([]map[string]any, []map[string]any) {
 	}
 
 	type row struct {
-		m       map[string]any
+		m        map[string]any
 		explored int
-		assetID int64
+		assetID  int64
 	}
 	rows := make([]row, 0, len(assets))
 	for _, a := range assets {

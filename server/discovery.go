@@ -484,7 +484,7 @@ func (s *Server) runDiscoveryPipeline(runID int64, p discoveryParams) {
 
 	accepted := make([]db.DiscoveryCandidate, 0, p.TargetCount)
 	skipped := make([]db.DiscoveryCandidate, 0, 64)
-	seen := map[string]bool{}    // root domains already produced a candidate row
+	seen := map[string]bool{} // root domains already produced a candidate row
 	seenOrder := make([]string, 0, 128)
 	usedQueries := make([]string, 0, p.Queries*p.MaxRounds)
 	allKeywords := make([]string, 0, p.Queries*p.MaxRounds)
@@ -686,7 +686,7 @@ func (s *Server) discoverySearchRound(ctx context.Context, queries []string,
 		Backend: opts.Backend, BraveAPIKey: opts.BraveKey, TavilyAPIKey: opts.TavilyKey,
 		Proxy:           opts.Proxy,
 		DeepSeekBaseURL: opts.DeepSeekBaseURL, DeepSeekAPIKey: opts.DeepSeekAPIKey,
-		DeepSeekModel:   opts.DeepSeekModel,
+		DeepSeekModel: opts.DeepSeekModel,
 	}
 	out := make([]discoveryHarvested, 0, len(queries)*8)
 	localSeen := map[string]bool{}
